@@ -1,0 +1,47 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper function to check if a user is logged in
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // === USERS Collection Rules (Unchanged) ===
+    match /users/{userId} {
+      allow read, update: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // === SHOPS Collection Rules (Unchanged) ===
+    match /shops/{shopId} {
+      allow read: if true;
+      allow create, update, delete: if isSignedIn() && request.resource.data.ownerId == request.auth.uid;
+    }
+
+    // === PRODUCTS Collection Rules (Unchanged) ===
+    match /products/{productId} {
+      // ANYONE can read product data.
+      allow read: if true;
+      // ONLY the shop owner can create, update, or delete products for their shop.
+      allow create, update, delete: if isSignedIn() && get(/databases/$(database)/documents/shops/$(request.resource.data.shopId)).data.ownerId == request.auth.uid;
+    }
+
+    // === NEW: RATINGS Collection Rules ===
+    match /ratings/{ratingId} {
+      // ANYONE can read the ratings. This is required for public shop
+      // pages to calculate and display the average rating.
+      allow read: if true;
+
+      // A user can CREATE a rating only if they are signed in AND
+      // the 'userId' field in the rating document they are creating
+      // is their own user ID. This prevents faking ratings for others.
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+
+      // A user can UPDATE or DELETE a rating only if they are the original
+      // user who created it.
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+  }
+}
