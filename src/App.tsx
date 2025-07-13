@@ -5,6 +5,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import Header from './components/Header';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoadingSpinner from './components/LoadingSpinner';
+import ToastContainer from './components/ToastContainer';
 import LandingPage from './pages/LandingPage';
 import MarketplacePage from './pages/MarketplacePage';
 import SignupPage from './pages/SignupPage';
@@ -48,6 +49,7 @@ function App() {
             />
             <Route path="/shop/:shopUrlSlug" element={<ShopPage />} />
           </Routes>
+          <ToastContainer />
         </div>
       </Router>
     </AuthProvider>
