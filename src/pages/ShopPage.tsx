@@ -10,11 +10,12 @@ import {
   updateDoc, 
   doc, 
   serverTimestamp,
-  orderBy
+  orderBy,
+  deleteDoc
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import { MessageCircle, Store, Star, StarOff } from 'lucide-react';
+import { MessageCircle, Store, Star, StarOff, Shield, Clock, MapPin, Phone, Mail, Globe, Heart, Share2 } from 'lucide-react';
 
 const categories = [
   { id: 'clothing', nameAr: 'ملابس', nameEn: 'Clothing' },
@@ -62,8 +63,6 @@ interface Product {
   price: number;
   imageUrl: string;
   category: string;
-  rating: number;
-  reviewCount: number;
   createdAt: any;
 }
 
@@ -86,6 +85,13 @@ const ShopPage: React.FC = () => {
   const [userRatings, setUserRatings] = useState<{ [key: string]: number }>({});
   const [loading, setLoading] = useState(true);
   const [ratingLoading, setRatingLoading] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'price_low' | 'price_high' | 'rating'>('newest');
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [tempRating, setTempRating] = useState(0);
+  const [ratingCooldown, setRatingCooldown] = useState<{ [key: string]: number }>({});
 
   useEffect(() => {
     if (shopUrlSlug) {
@@ -110,7 +116,8 @@ const ShopPage: React.FC = () => {
         // Fetch products
         const productsQuery = query(
           collection(db, 'products'), 
-          where('shopId', '==', shopWithId.id)
+          where('shopId', '==', shopWithId.id),
+          orderBy('createdAt', 'desc')
         );
         const productsSnapshot = await getDocs(productsQuery);
         const productsData = productsSnapshot.docs.map(doc => ({
@@ -150,6 +157,7 @@ const ShopPage: React.FC = () => {
       // Calculate average ratings and user ratings
       const avgRatings: { [key: string]: { average: number; count: number } } = {};
       const userRatingsMap: { [key: string]: number } = {};
+      const cooldownMap: { [key: string]: number } = {};
       
       productIds.forEach(productId => {
         const productRatings = ratingsData.filter(r => r.productId === productId);
@@ -165,51 +173,90 @@ const ShopPage: React.FC = () => {
             const userRating = productRatings.find(r => r.userId === user.uid);
             if (userRating) {
               userRatingsMap[productId] = userRating.rating;
+              // Set cooldown (24 hours from last rating)
+              const lastRatingTime = userRating.createdAt?.seconds * 1000 || 0;
+              const cooldownEnd = lastRatingTime + (24 * 60 * 60 * 1000); // 24 hours
+              if (Date.now() < cooldownEnd) {
+                cooldownMap[productId] = cooldownEnd;
+              }
             }
           }
         } else {
-          // Default rating for products with no ratings
           avgRatings[productId] = { average: 0, count: 0 };
         }
       });
       
       setProductRatings(avgRatings);
       setUserRatings(userRatingsMap);
+      setRatingCooldown(cooldownMap);
     } catch (error) {
       console.error('Error fetching ratings:', error);
     }
   };
 
-  const handleRating = async (productId: string, rating: number) => {
+  const canUserRate = (productId: string): { canRate: boolean; reason?: string } => {
     if (!user) {
-      alert(i18n.language === 'ar' ? 'يجب تسجيل الدخول لتقييم المنتجات' : 'Please login to rate products');
+      return { canRate: false, reason: i18n.language === 'ar' ? 'يجب تسجيل الدخول لتقييم المنتجات' : 'Please login to rate products' };
+    }
+
+    // Check if user is on cooldown
+    const cooldownEnd = ratingCooldown[productId];
+    if (cooldownEnd && Date.now() < cooldownEnd) {
+      const hoursLeft = Math.ceil((cooldownEnd - Date.now()) / (1000 * 60 * 60));
+      return { 
+        canRate: false, 
+        reason: i18n.language === 'ar' 
+          ? `يمكنك تقييم هذا المنتج مرة أخرى بعد ${hoursLeft} ساعة`
+          : `You can rate this product again in ${hoursLeft} hours`
+      };
+    }
+
+    return { canRate: true };
+  };
+
+  const handleRatingClick = (product: Product) => {
+    const { canRate, reason } = canUserRate(product.id);
+    
+    if (!canRate) {
+      alert(reason);
       return;
     }
 
-    setRatingLoading(productId);
+    setSelectedProduct(product);
+    setTempRating(userRatings[product.id] || 0);
+    setShowRatingModal(true);
+  };
+
+  const handleRatingSubmit = async () => {
+    if (!selectedProduct || !user || tempRating === 0) return;
+
+    setRatingLoading(selectedProduct.id);
     
     try {
       // Check if user already rated this product
-      const existingRating = ratings.find(r => r.productId === productId && r.userId === user.uid);
+      const existingRating = ratings.find(r => r.productId === selectedProduct.id && r.userId === user.uid);
       
       if (existingRating) {
         // Update existing rating
         await updateDoc(doc(db, 'ratings', existingRating.id), {
-          rating: rating,
+          rating: tempRating,
           createdAt: serverTimestamp()
         });
       } else {
         // Create new rating
         await addDoc(collection(db, 'ratings'), {
-          productId: productId,
+          productId: selectedProduct.id,
           userId: user.uid,
-          rating: rating,
+          rating: tempRating,
           createdAt: serverTimestamp()
         });
       }
       
       // Refresh ratings
-      await fetchRatings([productId]);
+      await fetchRatings([selectedProduct.id]);
+      setShowRatingModal(false);
+      setSelectedProduct(null);
+      setTempRating(0);
       
     } catch (error) {
       console.error('Error saving rating:', error);
@@ -222,15 +269,67 @@ const ShopPage: React.FC = () => {
   const handleWhatsAppOrder = (product: Product) => {
     if (!shop) return;
 
-    const message = `مرحباً ${shop.shopName}، أود طلب المنتج التالي: ${product.productName}`;
+    const message = `مرحباً ${shop.shopName}، أود طلب المنتج التالي:\n\n📦 ${product.productName}\n💰 السعر: ${product.price} د.ل\n\nشكراً لكم`;
     const whatsappUrl = `https://wa.me/${shop.whatsappNumber}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
   };
 
+  const handleShare = async (product?: Product) => {
+    const url = product 
+      ? `${window.location.origin}/shop/${shop?.shopUrlSlug}#product-${product.id}`
+      : window.location.href;
+    
+    const title = product 
+      ? `${product.productName} - ${shop?.shopName}`
+      : `${shop?.shopName} - دكاني`;
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+      } catch (error) {
+        // Fallback to clipboard
+        navigator.clipboard.writeText(url);
+        alert(i18n.language === 'ar' ? 'تم نسخ الرابط' : 'Link copied to clipboard');
+      }
+    } else {
+      navigator.clipboard.writeText(url);
+      alert(i18n.language === 'ar' ? 'تم نسخ الرابط' : 'Link copied to clipboard');
+    }
+  };
+
   const getCategoryName = (categoryId: string) => {
     const category = categories.find(cat => cat.id === categoryId);
-    return category ? (t('loading') === 'جاري التحميل...' ? category.nameAr : category.nameEn) : categoryId;
+    return category ? (i18n.language === 'ar' ? category.nameAr : category.nameEn) : categoryId;
   };
+
+  const filteredProducts = products
+    .filter(product => {
+      const matchesSearch = !searchTerm || 
+        product.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        product.description?.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      const matchesCategory = selectedCategory === 'all' || product.category === selectedCategory;
+      
+      return matchesSearch && matchesCategory;
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'newest':
+          return b.createdAt?.seconds - a.createdAt?.seconds || 0;
+        case 'oldest':
+          return a.createdAt?.seconds - b.createdAt?.seconds || 0;
+        case 'price_low':
+          return a.price - b.price;
+        case 'price_high':
+          return b.price - a.price;
+        case 'rating':
+          const aRating = productRatings[a.id]?.average || 0;
+          const bRating = productRatings[b.id]?.average || 0;
+          return bRating - aRating;
+        default:
+          return 0;
+      }
+    });
 
   if (loading) {
     return (
@@ -258,10 +357,8 @@ const ShopPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <>
       {/* Shop Header */}
       <div className="relative bg-gradient-to-r from-blue-600 to-purple-600 text-white overflow-hidden">
-        {/* Banner Background */}
         {shop.bannerUrl && (
           <div className="absolute inset-0">
             <img
@@ -291,267 +388,333 @@ const ShopPage: React.FC = () => {
             <h1 className="text-4xl font-bold mb-4">
               {shop.shopName}
             </h1>
-            <p className="text-xl opacity-90 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-xl opacity-90 max-w-2xl mx-auto leading-relaxed mb-6">
               {shop.description}
             </p>
             
+            {/* Action Buttons */}
+            <div className="flex justify-center space-x-4 space-x-reverse mb-6">
+              <button
+                onClick={() => handleShare()}
+                className="bg-white bg-opacity-20 hover:bg-opacity-30 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2 space-x-reverse"
+              >
+                <Share2 size={20} />
+                <span>{i18n.language === 'ar' ? 'مشاركة المتجر' : 'Share Shop'}</span>
+              </button>
+              <a
+                href={`https://wa.me/${shop.whatsappNumber}?text=${encodeURIComponent(`مرحباً ${shop.shopName}، أود الاستفسار عن منتجاتكم`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-green-600 hover:bg-green-700 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2 space-x-reverse"
+              >
+                <MessageCircle size={20} />
+                <span>{i18n.language === 'ar' ? 'تواصل معنا' : 'Contact Us'}</span>
+              </a>
+            </div>
+            
             {/* Business Info */}
-            <div className="mt-6 flex flex-wrap justify-center gap-4 text-sm">
+            <div className="flex flex-wrap justify-center gap-4 text-sm">
               {shop.businessInfo?.address && (
                 <div className="inline-flex items-center space-x-2 space-x-reverse bg-white bg-opacity-20 rounded-full px-4 py-2">
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd" />
-                  </svg>
+                  <MapPin className="h-4 w-4" />
                   <span>{shop.businessInfo.address}</span>
                 </div>
               )}
               {shop.businessInfo?.workingHours && (
                 <div className="inline-flex items-center space-x-2 space-x-reverse bg-white bg-opacity-20 rounded-full px-4 py-2">
-                  <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
-                  </svg>
+                  <Clock className="h-4 w-4" />
                   <span>{shop.businessInfo.workingHours}</span>
                 </div>
               )}
               <div className="inline-flex items-center space-x-2 space-x-reverse bg-white bg-opacity-20 rounded-full px-4 py-2">
-                <MessageCircle className="h-4 w-4" />
-                <span>متاح للطلب عبر واتساب</span>
+                <Shield className="h-4 w-4" />
+                <span>{i18n.language === 'ar' ? 'متجر موثق' : 'Verified Shop'}</span>
               </div>
-            </div>
-            
-            {/* Social Media Links */}
-            {(shop.socialMedia?.facebook || shop.socialMedia?.instagram || shop.socialMedia?.twitter || shop.socialMedia?.tiktok || shop.socialMedia?.youtube) && (
-              <div className="mt-6 flex justify-center space-x-4 space-x-reverse">
-                {shop.socialMedia.facebook && (
-                  <a
-                    href={shop.socialMedia.facebook}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center hover:bg-opacity-30 transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
-                    </svg>
-                  </a>
-                )}
-                {shop.socialMedia.instagram && (
-                  <a
-                    href={shop.socialMedia.instagram}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center hover:bg-opacity-30 transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 6.62 5.367 11.987 11.988 11.987 6.62 0 11.987-5.367 11.987-11.987C24.014 5.367 18.637.001 12.017.001zM8.449 16.988c-1.297 0-2.448-.49-3.323-1.297C4.198 14.895 3.708 13.744 3.708 12.447s.49-2.448 1.297-3.323C5.902 8.198 7.053 7.708 8.35 7.708s2.448.49 3.323 1.297c.897.875 1.387 2.026 1.387 3.323s-.49 2.448-1.297 3.323c-.875.897-2.026 1.387-3.323 1.387zm7.718 0c-1.297 0-2.448-.49-3.323-1.297-.897-.875-1.387-2.026-1.387-3.323s.49-2.448 1.297-3.323c.875-.897 2.026-1.387 3.323-1.387s2.448.49 3.323 1.297c.897.875 1.387 2.026 1.387 3.323s-.49 2.448-1.297 3.323c-.875.897-2.026 1.387-3.323 1.387z"/>
-                    </svg>
-                  </a>
-                )}
-                {shop.socialMedia.twitter && (
-                  <a
-                    href={shop.socialMedia.twitter}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center hover:bg-opacity-30 transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/>
-                    </svg>
-                  </a>
-                )}
-                {shop.socialMedia.tiktok && (
-                  <a
-                    href={shop.socialMedia.tiktok}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center hover:bg-opacity-30 transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>
-                    </svg>
-                  </a>
-                )}
-                {shop.socialMedia.youtube && (
-                  <a
-                    href={shop.socialMedia.youtube}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-10 h-10 bg-white bg-opacity-20 rounded-full flex items-center justify-center hover:bg-opacity-30 transition-colors"
-                  >
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                    </svg>
-                  </a>
-                )}
-              </div>
-            )}
             </div>
           </div>
         </div>
+      </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Shop Stats */}
         <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             <div>
-              <div className="text-2xl font-bold text-gray-900">{products.length}</div>
-              <div className="text-sm text-gray-600">منتج متاح</div>
+              <div className="text-2xl font-bold text-gray-900">{filteredProducts.length}</div>
+              <div className="text-sm text-gray-600">{i18n.language === 'ar' ? 'منتج متاح' : 'Products'}</div>
             </div>
             <div>
-              <div className="text-2xl font-bold text-green-600">متاح</div>
-              <div className="text-sm text-gray-600">حالة المتجر</div>
+              <div className="text-2xl font-bold text-green-600">{i18n.language === 'ar' ? 'متاح' : 'Available'}</div>
+              <div className="text-sm text-gray-600">{i18n.language === 'ar' ? 'حالة المتجر' : 'Shop Status'}</div>
             </div>
             <div>
-              <div className="text-2xl font-bold text-blue-600">فوري</div>
-              <div className="text-sm text-gray-600">الرد على الطلبات</div>
+              <div className="text-2xl font-bold text-blue-600">{i18n.language === 'ar' ? 'فوري' : 'Instant'}</div>
+              <div className="text-sm text-gray-600">{i18n.language === 'ar' ? 'الرد على الطلبات' : 'Response Time'}</div>
+            </div>
+            <div>
+              <div className="text-2xl font-bold text-purple-600">
+                {Object.values(productRatings).reduce((sum, rating) => sum + rating.count, 0)}
+              </div>
+              <div className="text-sm text-gray-600">{i18n.language === 'ar' ? 'تقييم العملاء' : 'Customer Reviews'}</div>
             </div>
           </div>
-          
-          {/* Additional Contact Info */}
-          {(shop.businessInfo?.phone || shop.businessInfo?.email) && (
-            <div className="mt-6 pt-6 border-t border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3 text-center">معلومات التواصل</h3>
-              <div className="flex flex-wrap justify-center gap-4 text-sm">
-                {shop.businessInfo.phone && (
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <svg className="h-4 w-4 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 5V3z" />
-                    </svg>
-                    <span className="text-gray-700">{shop.businessInfo.phone}</span>
-                  </div>
-                )}
-                {shop.businessInfo.email && (
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <svg className="h-4 w-4 text-gray-600" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
-                      <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
-                    </svg>
-                    <span className="text-gray-700">{shop.businessInfo.email}</span>
-                  </div>
-                )}
-              </div>
+        </div>
+
+        {/* Filters and Search */}
+        <div className="bg-white rounded-xl shadow-sm border p-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Search */}
+            <div>
+              <input
+                type="text"
+                placeholder={i18n.language === 'ar' ? 'ابحث في المنتجات...' : 'Search products...'}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-          )}
+            
+            {/* Category Filter */}
+            <div>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">{i18n.language === 'ar' ? 'جميع الفئات' : 'All Categories'}</option>
+                {categories.map(category => (
+                  <option key={category.id} value={category.id}>
+                    {i18n.language === 'ar' ? category.nameAr : category.nameEn}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            {/* Sort */}
+            <div>
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="newest">{i18n.language === 'ar' ? 'الأحدث' : 'Newest'}</option>
+                <option value="oldest">{i18n.language === 'ar' ? 'الأقدم' : 'Oldest'}</option>
+                <option value="price_low">{i18n.language === 'ar' ? 'السعر: من الأقل للأعلى' : 'Price: Low to High'}</option>
+                <option value="price_high">{i18n.language === 'ar' ? 'السعر: من الأعلى للأقل' : 'Price: High to Low'}</option>
+                <option value="rating">{i18n.language === 'ar' ? 'الأعلى تقييماً' : 'Highest Rated'}</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Products Grid */}
-        {products.length > 0 ? (
-          <>
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-2">منتجاتنا</h2>
-              <p className="text-gray-600">اختر من مجموعة منتجاتنا المميزة</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {products.map((product) => (
-                <div key={product.id} className="bg-white rounded-xl shadow-sm border overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
-                  <div className="relative">
-                    <img
-                      src={product.imageUrl}
-                      alt={product.productName}
-                      className="w-full h-56 object-cover"
-                      loading="lazy"
-                    />
-                    <div className="absolute top-3 right-3 bg-white rounded-full px-3 py-1 shadow-sm">
-                      <span className="text-lg font-bold text-blue-600">
-                        {product.price} {t('currency')}
-                      </span>
-                    </div>
-                    <div className="absolute top-3 left-3 bg-blue-600 text-white text-xs px-2 py-1 rounded">
-                      {getCategoryName(product.category)}
-                    </div>
+        {filteredProducts.length > 0 ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {filteredProducts.map((product) => (
+              <div key={product.id} id={`product-${product.id}`} className="bg-white rounded-xl shadow-sm border overflow-hidden hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
+                <div className="relative group">
+                  <img
+                    src={product.imageUrl}
+                    alt={product.productName}
+                    className="w-full h-56 object-cover"
+                    loading="lazy"
+                  />
+                  <div className="absolute top-3 right-3 bg-white rounded-full px-3 py-1 shadow-sm">
+                    <span className="text-lg font-bold text-blue-600">
+                      {product.price} {t('currency')}
+                    </span>
                   </div>
-                  <div className="p-5">
-                    <div className="flex items-center space-x-1 space-x-reverse mb-2">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <button
-                          key={star}
-                          onClick={() => handleRating(product.id, star)}
-                          disabled={ratingLoading === product.id}
-                          className={`focus:outline-none hover:scale-110 transition-transform ${
-                            ratingLoading === product.id ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
-                          }`}
-                        >
-                          <Star
-                            size={20}
-                            className={`${
-                              star <= (userRatings[product.id] || 0)
-                                ? 'text-yellow-400 fill-current'
-                                : 'text-gray-300'
-                            }`}
-                          />
-                        </button>
-                      ))}
-                      <div className="text-sm text-gray-600 ml-2 flex flex-col">
-                        <span>
-                          {productRatings[product.id]?.count > 0 
-                            ? `${productRatings[product.id].average.toFixed(1)} (${productRatings[product.id].count} ${i18n.language === 'ar' ? 'تقييم' : 'reviews'})`
-                            : i18n.language === 'ar' ? 'لا توجد تقييمات' : 'No ratings'
-                          }
-                        </span>
-                        {userRatings[product.id] && (
-                          <span className="text-xs text-blue-600">
-                            {i18n.language === 'ar' ? 'تقييمك:' : 'Your rating:'} {userRatings[product.id]} ⭐
-                          </span>
-                        )}
-                      </div>
-                      {ratingLoading === product.id && (
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 ml-2"></div>
-                      )}
-                    </div>
-                    <h3 className="font-bold text-gray-900 mb-3 text-lg leading-tight">
-                      {product.productName}
-                    </h3>
-                    {product.description && (
-                      <p className="text-gray-600 text-sm mb-3 line-clamp-2">
-                        {product.description}
-                      </p>
-                    )}
+                  <div className="absolute top-3 left-3 bg-blue-600 text-white text-xs px-2 py-1 rounded">
+                    {getCategoryName(product.category)}
+                  </div>
+                  
+                  {/* Hover Actions */}
+                  <div className="absolute inset-0 bg-black bg-opacity-50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-2 space-x-reverse">
                     <button
-                      onClick={() => handleWhatsAppOrder(product)}
-                      className="w-full bg-gradient-to-r from-green-600 to-green-700 text-white py-3 px-4 rounded-lg hover:from-green-700 hover:to-green-800 transition-all duration-200 flex items-center justify-center space-x-2 space-x-reverse font-semibold shadow-sm hover:shadow-md"
+                      onClick={() => handleShare(product)}
+                      className="bg-white text-gray-900 p-2 rounded-full hover:bg-gray-100 transition-colors"
                     >
-                      <MessageCircle size={18} />
-                      <span>{t('shop.order.whatsapp')}</span>
+                      <Share2 size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleRatingClick(product)}
+                      className="bg-white text-gray-900 p-2 rounded-full hover:bg-gray-100 transition-colors"
+                    >
+                      <Star size={16} />
                     </button>
                   </div>
                 </div>
-              ))}
-            </div>
-          </>
+                
+                <div className="p-5">
+                  <h3 className="font-bold text-gray-900 mb-2 text-lg leading-tight">
+                    {product.productName}
+                  </h3>
+                  
+                  {product.description && (
+                    <p className="text-gray-600 text-sm mb-3 line-clamp-2">
+                      {product.description}
+                    </p>
+                  )}
+                  
+                  {/* Rating Display */}
+                  <div className="flex items-center space-x-1 space-x-reverse mb-4">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <Star
+                        key={star}
+                        size={16}
+                        className={`${
+                          star <= (productRatings[product.id]?.average || 0)
+                            ? 'text-yellow-400 fill-current'
+                            : 'text-gray-300'
+                        }`}
+                      />
+                    ))}
+                    <span className="text-sm text-gray-600 ml-2">
+                      {productRatings[product.id]?.count > 0 
+                        ? `${productRatings[product.id].average.toFixed(1)} (${productRatings[product.id].count})`
+                        : i18n.language === 'ar' ? 'لا توجد تقييمات' : 'No ratings'
+                      }
+                    </span>
+                  </div>
+                  
+                  {/* User's Rating */}
+                  {userRatings[product.id] && (
+                    <div className="text-xs text-blue-600 mb-3">
+                      {i18n.language === 'ar' ? 'تقييمك:' : 'Your rating:'} {userRatings[product.id]} ⭐
+                    </div>
+                  )}
+                  
+                  <button
+                    onClick={() => handleWhatsAppOrder(product)}
+                    className="w-full bg-gradient-to-r from-green-600 to-green-700 text-white py-3 px-4 rounded-lg hover:from-green-700 hover:to-green-800 transition-all duration-200 flex items-center justify-center space-x-2 space-x-reverse font-semibold shadow-sm hover:shadow-md"
+                  >
+                    <MessageCircle size={18} />
+                    <span>{t('shop.order.whatsapp')}</span>
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
             <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <Store className="h-10 w-10 text-gray-400" />
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-3">
-              لا توجد منتجات حالياً
+              {i18n.language === 'ar' ? 'لا توجد منتجات' : 'No products found'}
             </h2>
             <p className="text-gray-600 text-lg">
-              سيتم إضافة المنتجات قريباً، تابعونا للحصول على آخر التحديثات
+              {searchTerm || selectedCategory !== 'all'
+                ? (i18n.language === 'ar' ? 'جرب تغيير معايير البحث' : 'Try changing your search criteria')
+                : (i18n.language === 'ar' ? 'سيتم إضافة المنتجات قريباً' : 'Products will be added soon')
+              }
             </p>
           </div>
         )}
 
         {/* Contact Section */}
-        <div className="mt-12 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-8 text-center">
-          <MessageCircle className="mx-auto h-12 w-12 text-blue-600 mb-4" />
-          <h3 className="text-xl font-bold text-gray-900 mb-2">
-            تواصل معنا مباشرة
-          </h3>
-          <p className="text-gray-600 mb-6">
-            لديك استفسار أو تريد طلب منتج مخصص؟ تواصل معنا عبر واتساب
-          </p>
-          <a
-            href={`https://wa.me/${shop.whatsappNumber}?text=${encodeURIComponent(`مرحباً ${shop.shopName}، أود الاستفسار عن منتجاتكم`)}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center space-x-2 space-x-reverse bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-semibold"
-          >
-            <MessageCircle size={20} />
-            <span>تواصل عبر واتساب</span>
-          </a>
+        <div className="mt-12 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border border-blue-200 p-8">
+          <div className="text-center mb-6">
+            <MessageCircle className="mx-auto h-12 w-12 text-blue-600 mb-4" />
+            <h3 className="text-xl font-bold text-gray-900 mb-2">
+              {i18n.language === 'ar' ? 'تواصل معنا مباشرة' : 'Contact Us Directly'}
+            </h3>
+            <p className="text-gray-600">
+              {i18n.language === 'ar' 
+                ? 'لديك استفسار أو تريد طلب منتج مخصص؟ تواصل معنا عبر واتساب'
+                : 'Have a question or want to order a custom product? Contact us via WhatsApp'
+              }
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            {shop.businessInfo?.phone && (
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <Phone className="h-5 w-5 text-blue-600" />
+                <span className="text-gray-700">{shop.businessInfo.phone}</span>
+              </div>
+            )}
+            {shop.businessInfo?.email && (
+              <div className="flex items-center space-x-3 space-x-reverse">
+                <Mail className="h-5 w-5 text-blue-600" />
+                <span className="text-gray-700">{shop.businessInfo.email}</span>
+              </div>
+            )}
+            <div className="flex items-center space-x-3 space-x-reverse">
+              <Globe className="h-5 w-5 text-blue-600" />
+              <span className="text-gray-700">{window.location.host}</span>
+            </div>
+          </div>
+          
+          <div className="text-center">
+            <a
+              href={`https://wa.me/${shop.whatsappNumber}?text=${encodeURIComponent(`مرحباً ${shop.shopName}، أود الاستفسار عن منتجاتكم`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center space-x-2 space-x-reverse bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors font-semibold"
+            >
+              <MessageCircle size={20} />
+              <span>{i18n.language === 'ar' ? 'تواصل عبر واتساب' : 'Contact via WhatsApp'}</span>
+            </a>
+          </div>
         </div>
       </div>
-      </>
+
+      {/* Rating Modal */}
+      {showRatingModal && selectedProduct && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="text-center mb-6">
+              <h3 className="text-xl font-bold text-gray-900 mb-2">
+                {i18n.language === 'ar' ? 'قيم هذا المنتج' : 'Rate This Product'}
+              </h3>
+              <p className="text-gray-600">{selectedProduct.productName}</p>
+            </div>
+            
+            <div className="flex justify-center space-x-2 space-x-reverse mb-6">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => setTempRating(star)}
+                  className="focus:outline-none hover:scale-110 transition-transform"
+                >
+                  <Star
+                    size={32}
+                    className={`${
+                      star <= tempRating
+                        ? 'text-yellow-400 fill-current'
+                        : 'text-gray-300'
+                    }`}
+                  />
+                </button>
+              ))}
+            </div>
+            
+            <div className="flex space-x-3 space-x-reverse">
+              <button
+                onClick={() => setShowRatingModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+              >
+                {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                onClick={handleRatingSubmit}
+                disabled={tempRating === 0 || ratingLoading === selectedProduct.id}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {ratingLoading === selectedProduct.id ? (
+                  <div className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                    {i18n.language === 'ar' ? 'جاري الحفظ...' : 'Saving...'}
+                  </div>
+                ) : (
+                  i18n.language === 'ar' ? 'حفظ التقييم' : 'Save Rating'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

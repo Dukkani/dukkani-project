@@ -8,14 +8,13 @@ import {
   getDocs, 
   addDoc, 
   updateDoc, 
-  deleteDoc,
+  deleteDoc, 
   doc, 
   serverTimestamp,
   orderBy
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { uploadImageToUploadio } from '../config/uploadio';
-import { ADMIN_CONFIG, PRODUCT_CATEGORIES } from '../config/constants';
 import { 
   Store, 
   Plus, 
@@ -23,30 +22,45 @@ import {
   Trash2, 
   Copy, 
   ExternalLink, 
-  Upload,
-  Save,
-  X,
-  AlertCircle,
-  CheckCircle,
+  Package, 
+  TrendingUp, 
+  Users, 
+  DollarSign,
   Eye,
+  MessageCircle,
+  Star,
   BarChart3,
-  Users,
-  ShoppingBag,
-  TrendingUp,
-  Calendar,
   Settings,
-  Image as ImageIcon,
-  Globe,
+  Upload,
+  Link as LinkIcon,
+  MapPin,
   Phone,
   Mail,
   Clock,
-  MapPin,
+  Globe,
   Facebook,
   Instagram,
   Twitter,
   Youtube,
-  Smartphone
+  Shield,
+  AlertTriangle,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
+
+const categories = [
+  { id: 'clothing', nameAr: 'ملابس', nameEn: 'Clothing' },
+  { id: 'jewelry', nameAr: 'مجوهرات', nameEn: 'Jewelry' },
+  { id: 'plants', nameAr: 'نباتات', nameEn: 'Plants' },
+  { id: 'electronics', nameAr: 'إلكترونيات', nameEn: 'Electronics' },
+  { id: 'home', nameAr: 'منزل وحديقة', nameEn: 'Home & Garden' },
+  { id: 'beauty', nameAr: 'جمال وعناية', nameEn: 'Beauty & Care' },
+  { id: 'food', nameAr: 'طعام ومشروبات', nameEn: 'Food & Drinks' },
+  { id: 'books', nameAr: 'كتب', nameEn: 'Books' },
+  { id: 'sports', nameAr: 'رياضة', nameEn: 'Sports' },
+  { id: 'toys', nameAr: 'ألعاب', nameEn: 'Toys' },
+  { id: 'automotive', nameAr: 'سيارات', nameEn: 'Automotive' }
+];
 
 interface Shop {
   id: string;
@@ -95,20 +109,19 @@ interface Rating {
 const DashboardPage: React.FC = () => {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'overview' | 'shop' | 'products' | 'analytics' | 'admin'>('overview');
   const [shop, setShop] = useState<Shop | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [allShops, setAllShops] = useState<Shop[]>([]);
   const [allProducts, setAllProducts] = useState<Product[]>([]);
   const [ratings, setRatings] = useState<Rating[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreateShop, setShowCreateShop] = useState(false);
-  const [showEditShop, setShowEditShop] = useState(false);
-  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [showShopForm, setShowShopForm] = useState(false);
+  const [showProductForm, setShowProductForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [editingShop, setEditingShop] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'shop' | 'analytics' | 'admin'>('overview');
-  
-  const [shopForm, setShopForm] = useState({
+  const [formData, setFormData] = useState({
     shopName: '',
     description: '',
     whatsappNumber: '',
@@ -129,18 +142,15 @@ const DashboardPage: React.FC = () => {
       workingHours: ''
     }
   });
-
-  const [productForm, setProductForm] = useState({
+  const [productFormData, setProductFormData] = useState({
     productName: '',
     description: '',
     price: '',
     imageUrl: '',
-    category: 'clothing'
+    category: ''
   });
 
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  const isAdmin = user && ADMIN_CONFIG.isAdmin(user.email || '');
+  const isAdmin = user?.email === 'dukkani2026@gmail.com';
 
   useEffect(() => {
     if (user) {
@@ -149,9 +159,9 @@ const DashboardPage: React.FC = () => {
   }, [user]);
 
   const fetchData = async () => {
-    if (!user) return;
-
     try {
+      setLoading(true);
+      
       if (isAdmin) {
         // Admin: Fetch all shops and products
         const shopsQuery = query(collection(db, 'shops'), orderBy('createdAt', 'desc'));
@@ -169,64 +179,58 @@ const DashboardPage: React.FC = () => {
           id: doc.id
         })) as Product[];
         setAllProducts(productsData);
-
-        // Also fetch user's own shop if exists
-        const userShop = shopsData.find(s => s.ownerId === user.uid);
-        if (userShop) {
-          setShop(userShop);
-          const userProducts = productsData.filter(p => p.shopId === userShop.id);
-          setProducts(userProducts);
-        }
-      } else {
-        // Regular user: Fetch only their shop and products
-        const shopQuery = query(
-          collection(db, 'shops'), 
-          where('ownerId', '==', user.uid)
-        );
-        const shopSnapshot = await getDocs(shopQuery);
-        
-        if (!shopSnapshot.empty) {
-          const shopData = shopSnapshot.docs[0].data() as Shop;
-          const shopWithId = { ...shopData, id: shopSnapshot.docs[0].id };
-          setShop(shopWithId);
-          setShopForm({
-            shopName: shopData.shopName,
-            description: shopData.description,
-            whatsappNumber: shopData.whatsappNumber,
-            shopUrlSlug: shopData.shopUrlSlug,
-            logoUrl: shopData.logoUrl || '',
-            bannerUrl: shopData.bannerUrl || '',
-            socialMedia: shopData.socialMedia || {
-              facebook: '',
-              instagram: '',
-              twitter: '',
-              tiktok: '',
-              youtube: ''
-            },
-            businessInfo: shopData.businessInfo || {
-              address: '',
-              phone: '',
-              email: '',
-              workingHours: ''
-            }
-          });
-
-          // Fetch products for this shop
-          const productsQuery = query(
-            collection(db, 'products'), 
-            where('shopId', '==', shopWithId.id),
-            orderBy('createdAt', 'desc')
-          );
-          const productsSnapshot = await getDocs(productsQuery);
-          const productsData = productsSnapshot.docs.map(doc => ({
-            ...doc.data(),
-            id: doc.id
-          })) as Product[];
-          setProducts(productsData);
-        }
       }
 
-      // Fetch ratings for analytics
+      // Fetch user's shop
+      const userShopQuery = query(
+        collection(db, 'shops'), 
+        where('ownerId', '==', user!.uid)
+      );
+      const userShopSnapshot = await getDocs(userShopQuery);
+      
+      if (!userShopSnapshot.empty) {
+        const shopData = userShopSnapshot.docs[0].data() as Shop;
+        const shopWithId = { ...shopData, id: userShopSnapshot.docs[0].id };
+        setShop(shopWithId);
+        
+        // Update form data with shop data
+        setFormData({
+          shopName: shopData.shopName || '',
+          description: shopData.description || '',
+          whatsappNumber: shopData.whatsappNumber || '',
+          shopUrlSlug: shopData.shopUrlSlug || '',
+          logoUrl: shopData.logoUrl || '',
+          bannerUrl: shopData.bannerUrl || '',
+          socialMedia: {
+            facebook: shopData.socialMedia?.facebook || '',
+            instagram: shopData.socialMedia?.instagram || '',
+            twitter: shopData.socialMedia?.twitter || '',
+            tiktok: shopData.socialMedia?.tiktok || '',
+            youtube: shopData.socialMedia?.youtube || ''
+          },
+          businessInfo: {
+            address: shopData.businessInfo?.address || '',
+            phone: shopData.businessInfo?.phone || '',
+            email: shopData.businessInfo?.email || '',
+            workingHours: shopData.businessInfo?.workingHours || ''
+          }
+        });
+
+        // Fetch products for this shop
+        const productsQuery = query(
+          collection(db, 'products'), 
+          where('shopId', '==', shopWithId.id),
+          orderBy('createdAt', 'desc')
+        );
+        const productsSnapshot = await getDocs(productsQuery);
+        const productsData = productsSnapshot.docs.map(doc => ({
+          ...doc.data(),
+          id: doc.id
+        })) as Product[];
+        setProducts(productsData);
+      }
+
+      // Fetch ratings
       const ratingsQuery = query(collection(db, 'ratings'), orderBy('createdAt', 'desc'));
       const ratingsSnapshot = await getDocs(ratingsQuery);
       const ratingsData = ratingsSnapshot.docs.map(doc => ({
@@ -237,168 +241,121 @@ const DashboardPage: React.FC = () => {
 
     } catch (error) {
       console.error('Error fetching data:', error);
-      showMessage('error', t('dashboard.error.fetch', 'Failed to fetch data'));
     } finally {
       setLoading(false);
     }
   };
 
-  const showMessage = (type: 'success' | 'error', text: string) => {
-    setMessage({ type, text });
-    setTimeout(() => setMessage(null), 5000);
+  const handleImageUpload = async (file: File, type: 'logo' | 'banner' | 'product') => {
+    try {
+      setUploading(true);
+      const imageUrl = await uploadImageToUploadio(file);
+      
+      if (type === 'product') {
+        setProductFormData(prev => ({ ...prev, imageUrl }));
+      } else {
+        setFormData(prev => ({ 
+          ...prev, 
+          [type === 'logo' ? 'logoUrl' : 'bannerUrl']: imageUrl 
+        }));
+      }
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert(t('dashboard.error.image.upload'));
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const handleCreateShop = async (e: React.FormEvent) => {
+  const generateSlug = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim();
+  };
+
+  const handleShopSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    setUploading(true);
     try {
-      // Generate URL slug from shop name if not provided
-      let urlSlug = shopForm.shopUrlSlug;
-      if (!urlSlug) {
-        urlSlug = shopForm.shopName
-          .toLowerCase()
-          .replace(/[^a-z0-9\s-]/g, '')
-          .replace(/\s+/g, '-')
-          .replace(/-+/g, '-')
-          .trim();
-      }
-
-      // Check if slug is unique
-      const existingShopQuery = query(
-        collection(db, 'shops'),
-        where('shopUrlSlug', '==', urlSlug)
-      );
-      const existingShopSnapshot = await getDocs(existingShopQuery);
+      setLoading(true);
       
-      if (!existingShopSnapshot.empty) {
-        urlSlug = `${urlSlug}-${Date.now()}`;
-      }
-
       const shopData = {
+        ...formData,
         ownerId: user.uid,
-        shopName: shopForm.shopName,
-        description: shopForm.description,
-        whatsappNumber: shopForm.whatsappNumber,
-        shopUrlSlug: urlSlug,
-        logoUrl: shopForm.logoUrl,
-        bannerUrl: shopForm.bannerUrl,
-        socialMedia: shopForm.socialMedia,
-        businessInfo: shopForm.businessInfo,
-        createdAt: serverTimestamp()
-      };
-
-      const docRef = await addDoc(collection(db, 'shops'), shopData);
-      const newShop = { ...shopData, id: docRef.id } as Shop;
-      setShop(newShop);
-      setShowCreateShop(false);
-      showMessage('success', t('dashboard.shop.created'));
-      await fetchData();
-    } catch (error) {
-      console.error('Error creating shop:', error);
-      showMessage('error', t('dashboard.error.shop.create'));
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleUpdateShop = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !shop) return;
-
-    setUploading(true);
-    try {
-      const shopData = {
-        shopName: shopForm.shopName,
-        description: shopForm.description,
-        whatsappNumber: shopForm.whatsappNumber,
-        logoUrl: shopForm.logoUrl,
-        bannerUrl: shopForm.bannerUrl,
-        socialMedia: shopForm.socialMedia,
-        businessInfo: shopForm.businessInfo,
+        shopUrlSlug: formData.shopUrlSlug || generateSlug(formData.shopName),
         updatedAt: serverTimestamp()
       };
 
-      await updateDoc(doc(db, 'shops', shop.id), shopData);
-      setShop({ ...shop, ...shopData });
-      setShowEditShop(false);
-      showMessage('success', t('dashboard.shop.updated'));
+      if (shop) {
+        // Update existing shop
+        await updateDoc(doc(db, 'shops', shop.id), shopData);
+        alert(t('dashboard.shop.updated'));
+      } else {
+        // Create new shop
+        await addDoc(collection(db, 'shops'), {
+          ...shopData,
+          createdAt: serverTimestamp()
+        });
+        alert(t('dashboard.shop.created'));
+      }
+      
+      setShowShopForm(false);
+      setEditingShop(false);
       await fetchData();
     } catch (error) {
-      console.error('Error updating shop:', error);
-      showMessage('error', t('dashboard.error.shop.update'));
+      console.error('Error saving shop:', error);
+      alert(t('dashboard.error.shop.create'));
     } finally {
-      setUploading(false);
+      setLoading(false);
     }
   };
 
-  const handleAddProduct = async (e: React.FormEvent) => {
+  const handleProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user || !shop) return;
+    if (!shop) return;
 
-    setUploading(true);
     try {
+      setLoading(true);
+      
       const productData = {
+        ...productFormData,
+        price: parseFloat(productFormData.price),
         shopId: shop.id,
-        productName: productForm.productName,
-        description: productForm.description,
-        price: parseFloat(productForm.price),
-        imageUrl: productForm.imageUrl,
-        category: productForm.category,
-        createdAt: serverTimestamp()
-      };
-
-      await addDoc(collection(db, 'products'), productData);
-      setShowAddProduct(false);
-      setProductForm({
-        productName: '',
-        description: '',
-        price: '',
-        imageUrl: '',
-        category: 'clothing'
-      });
-      showMessage('success', t('dashboard.product.added'));
-      await fetchData();
-    } catch (error) {
-      console.error('Error adding product:', error);
-      showMessage('error', t('dashboard.error.product.add'));
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const handleUpdateProduct = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user || !editingProduct) return;
-
-    setUploading(true);
-    try {
-      const productData = {
-        productName: productForm.productName,
-        description: productForm.description,
-        price: parseFloat(productForm.price),
-        imageUrl: productForm.imageUrl,
-        category: productForm.category,
         updatedAt: serverTimestamp()
       };
 
-      await updateDoc(doc(db, 'products', editingProduct.id), productData);
+      if (editingProduct) {
+        // Update existing product
+        await updateDoc(doc(db, 'products', editingProduct.id), productData);
+        alert(t('dashboard.product.updated'));
+      } else {
+        // Create new product
+        await addDoc(collection(db, 'products'), {
+          ...productData,
+          createdAt: serverTimestamp()
+        });
+        alert(t('dashboard.product.added'));
+      }
+      
+      setShowProductForm(false);
       setEditingProduct(null);
-      setProductForm({
+      setProductFormData({
         productName: '',
         description: '',
         price: '',
         imageUrl: '',
-        category: 'clothing'
+        category: ''
       });
-      showMessage('success', t('dashboard.product.updated'));
       await fetchData();
     } catch (error) {
-      console.error('Error updating product:', error);
-      showMessage('error', t('dashboard.error.product.update'));
+      console.error('Error saving product:', error);
+      alert(t('dashboard.error.product.add'));
     } finally {
-      setUploading(false);
+      setLoading(false);
     }
   };
 
@@ -410,12 +367,25 @@ const DashboardPage: React.FC = () => {
     if (!confirm(confirmMessage)) return;
 
     try {
+      setLoading(true);
+      
+      // Delete the product
       await deleteDoc(doc(db, 'products', productId));
-      showMessage('success', t('dashboard.product.deleted'));
+      
+      // Delete associated ratings
+      const productRatings = ratings.filter(r => r.productId === productId);
+      const deletePromises = productRatings.map(rating => 
+        deleteDoc(doc(db, 'ratings', rating.id))
+      );
+      await Promise.all(deletePromises);
+      
+      alert(t('dashboard.product.deleted'));
       await fetchData();
     } catch (error) {
       console.error('Error deleting product:', error);
-      showMessage('error', t('dashboard.error.product.delete'));
+      alert(t('dashboard.error.product.delete'));
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -423,41 +393,24 @@ const DashboardPage: React.FC = () => {
     if (!confirm(t('dashboard.confirm.delete.shop'))) return;
 
     try {
-      // Delete all products in the shop first
+      setLoading(true);
+      
+      // Delete all products in the shop
       const shopProducts = allProducts.filter(p => p.shopId === shopId);
       for (const product of shopProducts) {
-        await deleteDoc(doc(db, 'products', product.id));
+        await handleDeleteProduct(product.id, true);
       }
       
       // Delete the shop
       await deleteDoc(doc(db, 'shops', shopId));
-      showMessage('success', 'Shop deleted successfully');
+      
+      alert('Shop deleted successfully');
       await fetchData();
     } catch (error) {
       console.error('Error deleting shop:', error);
-      showMessage('error', 'Failed to delete shop');
-    }
-  };
-
-  const handleImageUpload = async (file: File, type: 'product' | 'logo' | 'banner') => {
-    setUploading(true);
-    try {
-      const imageUrl = await uploadImageToUploadio(file);
-      
-      if (type === 'product') {
-        setProductForm(prev => ({ ...prev, imageUrl }));
-      } else if (type === 'logo') {
-        setShopForm(prev => ({ ...prev, logoUrl: imageUrl }));
-      } else if (type === 'banner') {
-        setShopForm(prev => ({ ...prev, bannerUrl: imageUrl }));
-      }
-      
-      showMessage('success', 'Image uploaded successfully');
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      showMessage('error', t('dashboard.error.image.upload'));
+      alert('Failed to delete shop');
     } finally {
-      setUploading(false);
+      setLoading(false);
     }
   };
 
@@ -465,38 +418,35 @@ const DashboardPage: React.FC = () => {
     if (!shop) return;
     const link = `${window.location.origin}/shop/${shop.shopUrlSlug}`;
     navigator.clipboard.writeText(link);
-    showMessage('success', t('dashboard.link.copied'));
+    alert(t('dashboard.link.copied'));
   };
 
-  const startEditProduct = (product: Product) => {
-    setEditingProduct(product);
-    setProductForm({
-      productName: product.productName,
-      description: product.description,
-      price: product.price.toString(),
-      imageUrl: product.imageUrl,
-      category: product.category
-    });
-  };
-
-  const getCategoryName = (categoryId: string) => {
-    const category = PRODUCT_CATEGORIES.find(cat => cat.id === categoryId);
-    return category ? (i18n.language === 'ar' ? category.nameAr : category.nameEn) : categoryId;
+  const getProductRating = (productId: string) => {
+    const productRatings = ratings.filter(r => r.productId === productId);
+    if (productRatings.length === 0) return { average: 0, count: 0 };
+    
+    const sum = productRatings.reduce((acc, rating) => acc + rating.rating, 0);
+    return {
+      average: sum / productRatings.length,
+      count: productRatings.length
+    };
   };
 
   const calculateAnalytics = () => {
     const userProducts = isAdmin ? allProducts : products;
-    const userRatings = ratings.filter(r => 
+    const totalProducts = userProducts.length;
+    const totalRatings = ratings.filter(r => 
       userProducts.some(p => p.id === r.productId)
-    );
-    
-    const totalRating = userRatings.reduce((sum, r) => sum + r.rating, 0);
-    const averageRating = userRatings.length > 0 ? totalRating / userRatings.length : 0;
+    ).length;
+    const averageRating = totalRatings > 0 
+      ? ratings.filter(r => userProducts.some(p => p.id === r.productId))
+          .reduce((sum, r) => sum + r.rating, 0) / totalRatings 
+      : 0;
     
     return {
-      totalProducts: userProducts.length,
-      totalRatings: userRatings.length,
-      averageRating: averageRating,
+      totalProducts,
+      totalRatings,
+      averageRating: averageRating.toFixed(1),
       totalShops: isAdmin ? allShops.length : (shop ? 1 : 0)
     };
   };
@@ -522,142 +472,76 @@ const DashboardPage: React.FC = () => {
                 {isAdmin ? t('dashboard.admin.panel') : t('dashboard.welcome')}
               </h1>
               <p className="text-gray-600 mt-2">
-                {user?.email}
+                {isAdmin 
+                  ? 'إدارة جميع المتاجر والمنتجات في المنصة'
+                  : 'إدارة متجرك ومنتجاتك بسهولة'
+                }
               </p>
             </div>
             {shop && (
-              <div className="flex space-x-4 space-x-reverse">
+              <div className="flex space-x-3 space-x-reverse">
+                <button
+                  onClick={copyShopLink}
+                  className="flex items-center space-x-2 space-x-reverse bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Copy size={16} />
+                  <span>{t('dashboard.shop.copy')}</span>
+                </button>
                 <a
                   href={`/shop/${shop.shopUrlSlug}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center space-x-2 space-x-reverse bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  className="flex items-center space-x-2 space-x-reverse bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
                 >
-                  <ExternalLink size={20} />
+                  <ExternalLink size={16} />
                   <span>{t('dashboard.shop.view')}</span>
                 </a>
-                <button
-                  onClick={copyShopLink}
-                  className="inline-flex items-center space-x-2 space-x-reverse bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
-                >
-                  <Copy size={20} />
-                  <span>{t('dashboard.shop.copy')}</span>
-                </button>
               </div>
             )}
           </div>
         </div>
 
-        {/* Message */}
-        {message && (
-          <div className={`mb-6 p-4 rounded-lg flex items-center space-x-3 space-x-reverse ${
-            message.type === 'success' 
-              ? 'bg-green-50 border border-green-200 text-green-700' 
-              : 'bg-red-50 border border-red-200 text-red-700'
-          }`}>
-            {message.type === 'success' ? (
-              <CheckCircle className="h-5 w-5 flex-shrink-0" />
-            ) : (
-              <AlertCircle className="h-5 w-5 flex-shrink-0" />
-            )}
-            <span>{message.text}</span>
-          </div>
-        )}
-
-        {/* Navigation Tabs */}
+        {/* Tabs */}
         <div className="mb-8">
-          <nav className="flex space-x-8 space-x-reverse border-b border-gray-200">
-            <button
-              onClick={() => setActiveTab('overview')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'overview'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center space-x-2 space-x-reverse">
-                <BarChart3 size={20} />
-                <span>{i18n.language === 'ar' ? 'نظرة عامة' : 'Overview'}</span>
-              </div>
-            </button>
-            
-            {!isAdmin && (
-              <>
+          <div className="border-b border-gray-200">
+            <nav className="-mb-px flex space-x-8 space-x-reverse">
+              {[
+                { id: 'overview', label: i18n.language === 'ar' ? 'نظرة عامة' : 'Overview', icon: BarChart3 },
+                { id: 'shop', label: i18n.language === 'ar' ? 'المتجر' : 'Shop', icon: Store },
+                { id: 'products', label: i18n.language === 'ar' ? 'المنتجات' : 'Products', icon: Package },
+                { id: 'analytics', label: i18n.language === 'ar' ? 'التحليلات' : 'Analytics', icon: TrendingUp },
+                ...(isAdmin ? [{ id: 'admin', label: i18n.language === 'ar' ? 'إدارة المنصة' : 'Platform Admin', icon: Shield }] : [])
+              ].map((tab) => (
                 <button
-                  onClick={() => setActiveTab('shop')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'shop'
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`flex items-center space-x-2 space-x-reverse py-4 px-1 border-b-2 font-medium text-sm ${
+                    activeTab === tab.id
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                   }`}
                 >
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <Store size={20} />
-                    <span>{t('dashboard.my.shop')}</span>
-                  </div>
+                  <tab.icon size={20} />
+                  <span>{tab.label}</span>
                 </button>
-                
-                <button
-                  onClick={() => setActiveTab('products')}
-                  className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                    activeTab === 'products'
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2 space-x-reverse">
-                    <ShoppingBag size={20} />
-                    <span>{t('dashboard.products')}</span>
-                  </div>
-                </button>
-              </>
-            )}
-            
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                activeTab === 'analytics'
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              <div className="flex items-center space-x-2 space-x-reverse">
-                <TrendingUp size={20} />
-                <span>{i18n.language === 'ar' ? 'التحليلات' : 'Analytics'}</span>
-              </div>
-            </button>
-            
-            {isAdmin && (
-              <button
-                onClick={() => setActiveTab('admin')}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'admin'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center space-x-2 space-x-reverse">
-                  <Settings size={20} />
-                  <span>{i18n.language === 'ar' ? 'إدارة' : 'Admin'}</span>
-                </div>
-              </button>
-            )}
-          </nav>
+              ))}
+            </nav>
+          </div>
         </div>
 
         {/* Tab Content */}
         {activeTab === 'overview' && (
-          <div className="space-y-6">
+          <div className="space-y-8">
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-white rounded-xl shadow-sm border p-6">
                 <div className="flex items-center">
                   <div className="p-2 bg-blue-100 rounded-lg">
                     <Store className="h-6 w-6 text-blue-600" />
                   </div>
                   <div className="ml-4">
                     <p className="text-sm font-medium text-gray-600">
-                      {isAdmin ? t('dashboard.all.shops') : t('dashboard.my.shop')}
+                      {isAdmin ? 'إجمالي المتاجر' : 'متجري'}
                     </p>
                     <p className="text-2xl font-semibold text-gray-900">
                       {analytics.totalShops}
@@ -666,14 +550,14 @@ const DashboardPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-white rounded-xl shadow-sm border p-6">
                 <div className="flex items-center">
                   <div className="p-2 bg-green-100 rounded-lg">
-                    <ShoppingBag className="h-6 w-6 text-green-600" />
+                    <Package className="h-6 w-6 text-green-600" />
                   </div>
                   <div className="ml-4">
                     <p className="text-sm font-medium text-gray-600">
-                      {t('dashboard.products')}
+                      {isAdmin ? 'إجمالي المنتجات' : 'منتجاتي'}
                     </p>
                     <p className="text-2xl font-semibold text-gray-900">
                       {analytics.totalProducts}
@@ -682,33 +566,29 @@ const DashboardPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-white rounded-xl shadow-sm border p-6">
                 <div className="flex items-center">
                   <div className="p-2 bg-yellow-100 rounded-lg">
-                    <Users className="h-6 w-6 text-yellow-600" />
+                    <Star className="h-6 w-6 text-yellow-600" />
                   </div>
                   <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">
-                      {i18n.language === 'ar' ? 'التقييمات' : 'Ratings'}
-                    </p>
+                    <p className="text-sm font-medium text-gray-600">متوسط التقييم</p>
                     <p className="text-2xl font-semibold text-gray-900">
-                      {analytics.totalRatings}
+                      {analytics.averageRating} ⭐
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-white rounded-lg shadow p-6">
+              <div className="bg-white rounded-xl shadow-sm border p-6">
                 <div className="flex items-center">
                   <div className="p-2 bg-purple-100 rounded-lg">
-                    <TrendingUp className="h-6 w-6 text-purple-600" />
+                    <Users className="h-6 w-6 text-purple-600" />
                   </div>
                   <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">
-                      {i18n.language === 'ar' ? 'متوسط التقييم' : 'Avg Rating'}
-                    </p>
+                    <p className="text-sm font-medium text-gray-600">إجمالي التقييمات</p>
                     <p className="text-2xl font-semibold text-gray-900">
-                      {analytics.averageRating.toFixed(1)}
+                      {analytics.totalRatings}
                     </p>
                   </div>
                 </div>
@@ -716,131 +596,229 @@ const DashboardPage: React.FC = () => {
             </div>
 
             {/* Quick Actions */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                {i18n.language === 'ar' ? 'إجراءات سريعة' : 'Quick Actions'}
-              </h3>
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">إجراءات سريعة</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {!shop && !isAdmin && (
+                {!shop && (
                   <button
-                    onClick={() => setShowCreateShop(true)}
-                    className="flex items-center space-x-3 space-x-reverse p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                    onClick={() => setShowShopForm(true)}
+                    className="flex items-center space-x-3 space-x-reverse p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors"
                   >
-                    <Plus className="h-6 w-6 text-blue-600" />
-                    <span className="font-medium">{t('dashboard.create.shop')}</span>
+                    <Plus className="h-6 w-6 text-gray-400" />
+                    <span className="text-gray-600">إنشاء متجر جديد</span>
                   </button>
-                )}
-                
-                {shop && !isAdmin && (
-                  <>
-                    <button
-                      onClick={() => setShowAddProduct(true)}
-                      className="flex items-center space-x-3 space-x-reverse p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      <Plus className="h-6 w-6 text-green-600" />
-                      <span className="font-medium">{t('dashboard.add.product')}</span>
-                    </button>
-                    
-                    <button
-                      onClick={() => setShowEditShop(true)}
-                      className="flex items-center space-x-3 space-x-reverse p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                    >
-                      <Edit className="h-6 w-6 text-purple-600" />
-                      <span className="font-medium">{t('dashboard.shop.edit')}</span>
-                    </button>
-                  </>
                 )}
                 
                 {shop && (
-                  <a
-                    href={`/shop/${shop.shopUrlSlug}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center space-x-3 space-x-reverse p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  <button
+                    onClick={() => setShowProductForm(true)}
+                    className="flex items-center space-x-3 space-x-reverse p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-green-500 hover:bg-green-50 transition-colors"
                   >
-                    <Eye className="h-6 w-6 text-indigo-600" />
-                    <span className="font-medium">{t('dashboard.shop.view')}</span>
-                  </a>
+                    <Plus className="h-6 w-6 text-gray-400" />
+                    <span className="text-gray-600">إضافة منتج جديد</span>
+                  </button>
+                )}
+                
+                {shop && (
+                  <button
+                    onClick={() => setEditingShop(true)}
+                    className="flex items-center space-x-3 space-x-reverse p-4 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-colors"
+                  >
+                    <Settings className="h-6 w-6 text-gray-400" />
+                    <span className="text-gray-600">تعديل إعدادات المتجر</span>
+                  </button>
                 )}
               </div>
             </div>
+
+            {/* Recent Products */}
+            {products.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">أحدث المنتجات</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {products.slice(0, 3).map((product) => {
+                    const rating = getProductRating(product.id);
+                    return (
+                      <div key={product.id} className="border rounded-lg p-4">
+                        <img
+                          src={product.imageUrl}
+                          alt={product.productName}
+                          className="w-full h-32 object-cover rounded-lg mb-3"
+                        />
+                        <h4 className="font-medium text-gray-900 mb-1">{product.productName}</h4>
+                        <p className="text-blue-600 font-semibold">{product.price} د.ل</p>
+                        <div className="flex items-center mt-2">
+                          <Star className="h-4 w-4 text-yellow-400 fill-current" />
+                          <span className="text-sm text-gray-600 ml-1">
+                            {rating.average.toFixed(1)} ({rating.count})
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {activeTab === 'shop' && !isAdmin && (
-          <div className="space-y-6">
+        {activeTab === 'shop' && (
+          <div className="space-y-8">
             {shop ? (
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    {t('dashboard.my.shop')}
-                  </h2>
-                  <button
-                    onClick={() => setShowEditShop(true)}
-                    className="inline-flex items-center space-x-2 space-x-reverse bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <Edit size={20} />
-                    <span>{t('dashboard.edit')}</span>
-                  </button>
-                </div>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div>
-                    <h3 className="font-semibold text-gray-900 mb-2">{shop.shopName}</h3>
-                    <p className="text-gray-600 mb-4">{shop.description}</p>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center space-x-2 space-x-reverse">
-                        <Smartphone className="h-4 w-4 text-gray-400" />
-                        <span>{shop.whatsappNumber}</span>
-                      </div>
-                      <div className="flex items-center space-x-2 space-x-reverse">
-                        <Globe className="h-4 w-4 text-gray-400" />
-                        <span>/shop/{shop.shopUrlSlug}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    {shop.logoUrl && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          {i18n.language === 'ar' ? 'شعار المتجر' : 'Shop Logo'}
-                        </label>
+              <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                {/* Shop Header */}
+                <div className="relative h-48 bg-gradient-to-r from-blue-600 to-purple-600">
+                  {shop.bannerUrl && (
+                    <img
+                      src={shop.bannerUrl}
+                      alt="Shop Banner"
+                      className="w-full h-full object-cover opacity-50"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+                  <div className="absolute bottom-4 left-6 flex items-end space-x-4 space-x-reverse">
+                    <div className="w-20 h-20 rounded-full border-4 border-white overflow-hidden bg-white">
+                      {shop.logoUrl ? (
                         <img
                           src={shop.logoUrl}
                           alt="Shop Logo"
-                          className="w-20 h-20 rounded-lg object-cover border"
+                          className="w-full h-full object-cover"
                         />
-                      </div>
-                    )}
-                    
-                    {shop.bannerUrl && (
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          {i18n.language === 'ar' ? 'بانر المتجر' : 'Shop Banner'}
-                        </label>
-                        <img
-                          src={shop.bannerUrl}
-                          alt="Shop Banner"
-                          className="w-full h-32 rounded-lg object-cover border"
-                        />
-                      </div>
-                    )}
+                      ) : (
+                        <div className="w-full h-full bg-gray-100 flex items-center justify-center">
+                          <Store className="h-8 w-8 text-gray-400" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-white">
+                      <h2 className="text-2xl font-bold">{shop.shopName}</h2>
+                      <p className="opacity-90">{shop.description}</p>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => setEditingShop(true)}
+                    className="absolute top-4 right-4 bg-white bg-opacity-20 hover:bg-opacity-30 text-white p-2 rounded-lg transition-colors"
+                  >
+                    <Edit size={20} />
+                  </button>
+                </div>
+
+                {/* Shop Details */}
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Basic Info */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">معلومات أساسية</h3>
+                      <div className="space-y-3">
+                        <div className="flex items-center space-x-3 space-x-reverse">
+                          <LinkIcon className="h-5 w-5 text-gray-400" />
+                          <span className="text-gray-600">الرابط:</span>
+                          <code className="bg-gray-100 px-2 py-1 rounded text-sm">
+                            /shop/{shop.shopUrlSlug}
+                          </code>
+                        </div>
+                        <div className="flex items-center space-x-3 space-x-reverse">
+                          <MessageCircle className="h-5 w-5 text-gray-400" />
+                          <span className="text-gray-600">واتساب:</span>
+                          <span>{shop.whatsappNumber}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Business Info */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">معلومات العمل</h3>
+                      <div className="space-y-3">
+                        {shop.businessInfo?.address && (
+                          <div className="flex items-center space-x-3 space-x-reverse">
+                            <MapPin className="h-5 w-5 text-gray-400" />
+                            <span>{shop.businessInfo.address}</span>
+                          </div>
+                        )}
+                        {shop.businessInfo?.phone && (
+                          <div className="flex items-center space-x-3 space-x-reverse">
+                            <Phone className="h-5 w-5 text-gray-400" />
+                            <span>{shop.businessInfo.phone}</span>
+                          </div>
+                        )}
+                        {shop.businessInfo?.email && (
+                          <div className="flex items-center space-x-3 space-x-reverse">
+                            <Mail className="h-5 w-5 text-gray-400" />
+                            <span>{shop.businessInfo.email}</span>
+                          </div>
+                        )}
+                        {shop.businessInfo?.workingHours && (
+                          <div className="flex items-center space-x-3 space-x-reverse">
+                            <Clock className="h-5 w-5 text-gray-400" />
+                            <span>{shop.businessInfo.workingHours}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Social Media */}
+                  {(shop.socialMedia?.facebook || shop.socialMedia?.instagram || shop.socialMedia?.twitter || shop.socialMedia?.youtube) && (
+                    <div className="mt-6 pt-6 border-t border-gray-200">
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">وسائل التواصل الاجتماعي</h3>
+                      <div className="flex space-x-4 space-x-reverse">
+                        {shop.socialMedia.facebook && (
+                          <a
+                            href={shop.socialMedia.facebook}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            <Facebook size={24} />
+                          </a>
+                        )}
+                        {shop.socialMedia.instagram && (
+                          <a
+                            href={shop.socialMedia.instagram}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-pink-600 hover:text-pink-800"
+                          >
+                            <Instagram size={24} />
+                          </a>
+                        )}
+                        {shop.socialMedia.twitter && (
+                          <a
+                            href={shop.socialMedia.twitter}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-400 hover:text-blue-600"
+                          >
+                            <Twitter size={24} />
+                          </a>
+                        )}
+                        {shop.socialMedia.youtube && (
+                          <a
+                            href={shop.socialMedia.youtube}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            <Youtube size={24} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
-              <div className="bg-white rounded-lg shadow p-8 text-center">
+              <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
                 <Store className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">
                   {t('dashboard.no.shop')}
                 </h2>
                 <p className="text-gray-600 mb-6">
                   {t('dashboard.no.shop.desc')}
                 </p>
                 <button
-                  onClick={() => setShowCreateShop(true)}
-                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                  onClick={() => setShowShopForm(true)}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   {t('dashboard.create.shop')}
                 </button>
@@ -849,279 +827,307 @@ const DashboardPage: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'products' && !isAdmin && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">
-                {t('dashboard.products')}
-              </h2>
-              {shop && (
-                <button
-                  onClick={() => setShowAddProduct(true)}
-                  className="inline-flex items-center space-x-2 space-x-reverse bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <Plus size={20} />
-                  <span>{t('dashboard.add.product')}</span>
-                </button>
-              )}
-            </div>
+        {activeTab === 'products' && (
+          <div className="space-y-8">
+            {shop ? (
+              <>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {t('dashboard.products')} ({products.length})
+                  </h2>
+                  <button
+                    onClick={() => setShowProductForm(true)}
+                    className="flex items-center space-x-2 space-x-reverse bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Plus size={20} />
+                    <span>{t('dashboard.add.product')}</span>
+                  </button>
+                </div>
 
-            {products.length > 0 ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {products.map((product) => (
-                  <div key={product.id} className="bg-white rounded-lg shadow overflow-hidden">
-                    <img
-                      src={product.imageUrl}
-                      alt={product.productName}
-                      className="w-full h-48 object-cover"
-                    />
-                    <div className="p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                          {getCategoryName(product.category)}
-                        </span>
-                        <span className="text-lg font-bold text-blue-600">
-                          {product.price} {t('currency')}
-                        </span>
-                      </div>
-                      <h3 className="font-semibold text-gray-900 mb-2">
-                        {product.productName}
-                      </h3>
-                      {product.description && (
-                        <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                          {product.description}
-                        </p>
-                      )}
-                      <div className="flex space-x-2 space-x-reverse">
-                        <button
-                          onClick={() => startEditProduct(product)}
-                          className="flex-1 bg-blue-600 text-white py-2 px-3 rounded text-sm hover:bg-blue-700 transition-colors"
-                        >
-                          {t('dashboard.edit')}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(product.id)}
-                          className="flex-1 bg-red-600 text-white py-2 px-3 rounded text-sm hover:bg-red-700 transition-colors"
-                        >
-                          {t('dashboard.delete')}
-                        </button>
-                      </div>
-                    </div>
+                {products.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {products.map((product) => {
+                      const rating = getProductRating(product.id);
+                      return (
+                        <div key={product.id} className="bg-white rounded-xl shadow-sm border overflow-hidden">
+                          <img
+                            src={product.imageUrl}
+                            alt={product.productName}
+                            className="w-full h-48 object-cover"
+                          />
+                          <div className="p-4">
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                {categories.find(c => c.id === product.category)?.[i18n.language === 'ar' ? 'nameAr' : 'nameEn'] || product.category}
+                              </span>
+                              <span className="text-lg font-bold text-blue-600">
+                                {product.price} د.ل
+                              </span>
+                            </div>
+                            <h3 className="font-semibold text-gray-900 mb-2">{product.productName}</h3>
+                            {product.description && (
+                              <p className="text-gray-600 text-sm mb-3 line-clamp-2">
+                                {product.description}
+                              </p>
+                            )}
+                            <div className="flex items-center justify-between mb-4">
+                              <div className="flex items-center">
+                                <Star className="h-4 w-4 text-yellow-400 fill-current" />
+                                <span className="text-sm text-gray-600 ml-1">
+                                  {rating.average.toFixed(1)} ({rating.count})
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex space-x-2 space-x-reverse">
+                              <button
+                                onClick={() => {
+                                  setEditingProduct(product);
+                                  setProductFormData({
+                                    productName: product.productName,
+                                    description: product.description,
+                                    price: product.price.toString(),
+                                    imageUrl: product.imageUrl,
+                                    category: product.category
+                                  });
+                                  setShowProductForm(true);
+                                }}
+                                className="flex-1 flex items-center justify-center space-x-1 space-x-reverse bg-blue-600 text-white py-2 px-3 rounded-lg hover:bg-blue-700 transition-colors"
+                              >
+                                <Edit size={16} />
+                                <span>{t('dashboard.edit')}</span>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(product.id)}
+                                className="flex items-center justify-center bg-red-600 text-white py-2 px-3 rounded-lg hover:bg-red-700 transition-colors"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
+                ) : (
+                  <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
+                    <Package className="mx-auto h-16 w-16 text-gray-400 mb-4" />
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                      {t('dashboard.no.products')}
+                    </h2>
+                    <p className="text-gray-600 mb-6">
+                      {t('dashboard.no.products.desc')}
+                    </p>
+                    <button
+                      onClick={() => setShowProductForm(true)}
+                      className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      {t('dashboard.add.product')}
+                    </button>
+                  </div>
+                )}
+              </>
             ) : (
-              <div className="bg-white rounded-lg shadow p-8 text-center">
-                <ShoppingBag className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-                <h2 className="text-xl font-semibold text-gray-900 mb-2">
-                  {t('dashboard.no.products')}
+              <div className="bg-white rounded-xl shadow-sm border p-12 text-center">
+                <Store className="mx-auto h-16 w-16 text-gray-400 mb-4" />
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                  أنشئ متجرك أولاً
                 </h2>
                 <p className="text-gray-600 mb-6">
-                  {t('dashboard.no.products.desc')}
+                  يجب إنشاء متجر قبل إضافة المنتجات
                 </p>
-                {shop && (
-                  <button
-                    onClick={() => setShowAddProduct(true)}
-                    className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold"
-                  >
-                    {t('dashboard.add.product')}
-                  </button>
-                )}
+                <button
+                  onClick={() => setShowShopForm(true)}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  إنشاء متجر
+                </button>
               </div>
             )}
           </div>
         )}
 
         {activeTab === 'analytics' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-gray-900">
-              {i18n.language === 'ar' ? 'التحليلات والإحصائيات' : 'Analytics & Statistics'}
-            </h2>
+          <div className="space-y-8">
+            <h2 className="text-2xl font-bold text-gray-900">التحليلات والإحصائيات</h2>
             
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  {i18n.language === 'ar' ? 'نظرة عامة' : 'Overview'}
-                </h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">
-                      {i18n.language === 'ar' ? 'إجمالي المنتجات:' : 'Total Products:'}
-                    </span>
-                    <span className="font-semibold">{analytics.totalProducts}</span>
+            {/* Analytics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">المنتجات</p>
+                    <p className="text-3xl font-bold text-gray-900">{analytics.totalProducts}</p>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">
-                      {i18n.language === 'ar' ? 'إجمالي التقييمات:' : 'Total Ratings:'}
-                    </span>
-                    <span className="font-semibold">{analytics.totalRatings}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">
-                      {i18n.language === 'ar' ? 'متوسط التقييم:' : 'Average Rating:'}
-                    </span>
-                    <span className="font-semibold">{analytics.averageRating.toFixed(1)} ⭐</span>
-                  </div>
-                  {isAdmin && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">
-                        {i18n.language === 'ar' ? 'إجمالي المتاجر:' : 'Total Shops:'}
-                      </span>
-                      <span className="font-semibold">{analytics.totalShops}</span>
-                    </div>
-                  )}
+                  <Package className="h-8 w-8 text-blue-600" />
                 </div>
               </div>
 
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                  {i18n.language === 'ar' ? 'الفئات الأكثر شيوعاً' : 'Popular Categories'}
-                </h3>
-                <div className="space-y-3">
-                  {PRODUCT_CATEGORIES.slice(0, 5).map((category) => {
-                    const categoryProducts = (isAdmin ? allProducts : products).filter(
-                      p => p.category === category.id
-                    );
-                    const percentage = analytics.totalProducts > 0 
-                      ? (categoryProducts.length / analytics.totalProducts) * 100 
-                      : 0;
-                    
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">التقييمات</p>
+                    <p className="text-3xl font-bold text-gray-900">{analytics.totalRatings}</p>
+                  </div>
+                  <Star className="h-8 w-8 text-yellow-600" />
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">متوسط التقييم</p>
+                    <p className="text-3xl font-bold text-gray-900">{analytics.averageRating}</p>
+                  </div>
+                  <TrendingUp className="h-8 w-8 text-green-600" />
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-600">المتاجر</p>
+                    <p className="text-3xl font-bold text-gray-900">{analytics.totalShops}</p>
+                  </div>
+                  <Store className="h-8 w-8 text-purple-600" />
+                </div>
+              </div>
+            </div>
+
+            {/* Product Performance */}
+            {products.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">أداء المنتجات</h3>
+                <div className="space-y-4">
+                  {products.map((product) => {
+                    const rating = getProductRating(product.id);
                     return (
-                      <div key={category.id}>
-                        <div className="flex justify-between text-sm">
-                          <span>{i18n.language === 'ar' ? category.nameAr : category.nameEn}</span>
-                          <span>{categoryProducts.length}</span>
+                      <div key={product.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center space-x-3 space-x-reverse">
+                          <img
+                            src={product.imageUrl}
+                            alt={product.productName}
+                            className="w-12 h-12 object-cover rounded-lg"
+                          />
+                          <div>
+                            <h4 className="font-medium text-gray-900">{product.productName}</h4>
+                            <p className="text-sm text-gray-600">{product.price} د.ل</p>
+                          </div>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-blue-600 h-2 rounded-full"
-                            style={{ width: `${percentage}%` }}
-                          ></div>
+                        <div className="flex items-center space-x-4 space-x-reverse">
+                          <div className="text-center">
+                            <p className="text-sm text-gray-600">التقييم</p>
+                            <p className="font-semibold">{rating.average.toFixed(1)} ⭐</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-sm text-gray-600">المراجعات</p>
+                            <p className="font-semibold">{rating.count}</p>
+                          </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
 
         {activeTab === 'admin' && isAdmin && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-gray-900">
-              {t('dashboard.admin.panel')}
-            </h2>
-            
+          <div className="space-y-8">
+            <div className="flex items-center space-x-3 space-x-reverse">
+              <Shield className="h-8 w-8 text-red-600" />
+              <h2 className="text-2xl font-bold text-gray-900">لوحة تحكم المدير</h2>
+            </div>
+
+            {/* Admin Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">جميع المتاجر</h3>
+                <p className="text-3xl font-bold text-blue-600">{allShops.length}</p>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">جميع المنتجات</h3>
+                <p className="text-3xl font-bold text-green-600">{allProducts.length}</p>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">إجمالي التقييمات</h3>
+                <p className="text-3xl font-bold text-purple-600">{ratings.length}</p>
+              </div>
+            </div>
+
             {/* All Shops */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                {t('dashboard.all.shops')} ({allShops.length})
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {i18n.language === 'ar' ? 'اسم المتجر' : 'Shop Name'}
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {i18n.language === 'ar' ? 'المالك' : 'Owner'}
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {i18n.language === 'ar' ? 'المنتجات' : 'Products'}
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        {i18n.language === 'ar' ? 'الإجراءات' : 'Actions'}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {allShops.map((shopItem) => {
-                      const shopProducts = allProducts.filter(p => p.shopId === shopItem.id);
-                      return (
-                        <tr key={shopItem.id}>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              {shopItem.logoUrl && (
-                                <img
-                                  className="h-10 w-10 rounded-full mr-3"
-                                  src={shopItem.logoUrl}
-                                  alt=""
-                                />
-                              )}
-                              <div>
-                                <div className="text-sm font-medium text-gray-900">
-                                  {shopItem.shopName}
-                                </div>
-                                <div className="text-sm text-gray-500">
-                                  /{shopItem.shopUrlSlug}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {shopItem.ownerId}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {shopProducts.length}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <div className="flex space-x-2 space-x-reverse">
-                              <a
-                                href={`/shop/${shopItem.shopUrlSlug}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-900"
-                              >
-                                <Eye size={16} />
-                              </a>
-                              <button
-                                onClick={() => handleDeleteShop(shopItem.id)}
-                                className="text-red-600 hover:text-red-900"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">جميع المتاجر</h3>
+              <div className="space-y-4">
+                {allShops.map((shop) => (
+                  <div key={shop.id} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div className="flex items-center space-x-3 space-x-reverse">
+                      <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-100">
+                        {shop.logoUrl ? (
+                          <img src={shop.logoUrl} alt={shop.shopName} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Store className="h-6 w-6 text-gray-400" />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">{shop.shopName}</h4>
+                        <p className="text-sm text-gray-600">{shop.description}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2 space-x-reverse">
+                      <a
+                        href={`/shop/${shop.shopUrlSlug}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      >
+                        <ExternalLink size={16} />
+                      </a>
+                      <button
+                        onClick={() => handleDeleteShop(shop.id)}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
             {/* All Products */}
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                {t('dashboard.all.products')} ({allProducts.length})
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {allProducts.map((product) => {
+            <div className="bg-white rounded-xl shadow-sm border p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">جميع المنتجات</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {allProducts.slice(0, 12).map((product) => {
                   const productShop = allShops.find(s => s.id === product.shopId);
+                  const rating = getProductRating(product.id);
                   return (
                     <div key={product.id} className="border rounded-lg p-4">
                       <img
                         src={product.imageUrl}
                         alt={product.productName}
-                        className="w-full h-32 object-cover rounded mb-2"
+                        className="w-full h-32 object-cover rounded-lg mb-3"
                       />
-                      <h4 className="font-semibold text-sm mb-1">{product.productName}</h4>
-                      <p className="text-xs text-gray-600 mb-2">
-                        {productShop?.shopName}
-                      </p>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-bold text-blue-600">
-                          {product.price} {t('currency')}
-                        </span>
-                        <button
-                          onClick={() => handleDeleteProduct(product.id, true)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                      <h4 className="font-medium text-gray-900 mb-1">{product.productName}</h4>
+                      <p className="text-sm text-gray-600 mb-2">{productShop?.shopName}</p>
+                      <div className="flex items-center justify-between">
+                        <span className="text-blue-600 font-semibold">{product.price} د.ل</span>
+                        <div className="flex items-center">
+                          <Star className="h-4 w-4 text-yellow-400 fill-current" />
+                          <span className="text-sm text-gray-600 ml-1">
+                            {rating.average.toFixed(1)} ({rating.count})
+                          </span>
+                        </div>
                       </div>
+                      <button
+                        onClick={() => handleDeleteProduct(product.id, true)}
+                        className="w-full mt-3 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition-colors text-sm"
+                      >
+                        حذف المنتج
+                      </button>
                     </div>
                   );
                 })}
@@ -1129,726 +1135,422 @@ const DashboardPage: React.FC = () => {
             </div>
           </div>
         )}
+      </div>
 
-        {/* Modals */}
-        {/* Create Shop Modal */}
-        {showCreateShop && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    {t('dashboard.create.shop')}
-                  </h2>
-                  <button
-                    onClick={() => setShowCreateShop(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <X size={24} />
-                  </button>
-                </div>
-
-                <form onSubmit={handleCreateShop} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t('dashboard.shop.name')} *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={shopForm.shopName}
-                        onChange={(e) => setShopForm(prev => ({ ...prev, shopName: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder={t('dashboard.shop.name.placeholder')}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t('dashboard.shop.whatsapp')} *
-                      </label>
-                      <input
-                        type="tel"
-                        required
-                        value={shopForm.whatsappNumber}
-                        onChange={(e) => setShopForm(prev => ({ ...prev, whatsappNumber: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder={t('dashboard.shop.whatsapp.placeholder')}
-                      />
-                    </div>
-                  </div>
-
+      {/* Shop Form Modal */}
+      {(showShopForm || editingShop) && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <h3 className="text-xl font-bold text-gray-900 mb-6">
+                {shop ? 'تعديل المتجر' : 'إنشاء متجر جديد'}
+              </h3>
+              
+              <form onSubmit={handleShopSubmit} className="space-y-6">
+                {/* Basic Info */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('dashboard.shop.description')} *
-                    </label>
-                    <textarea
-                      required
-                      rows={3}
-                      value={shopForm.description}
-                      onChange={(e) => setShopForm(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder={t('dashboard.shop.description.placeholder')}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {i18n.language === 'ar' ? 'رابط المتجر (اختياري)' : 'Shop URL (Optional)'}
+                      اسم المتجر *
                     </label>
                     <input
                       type="text"
-                      value={shopForm.shopUrlSlug}
-                      onChange={(e) => setShopForm(prev => ({ ...prev, shopUrlSlug: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder={i18n.language === 'ar' ? 'my-shop' : 'my-shop'}
+                      required
+                      value={formData.shopName}
+                      onChange={(e) => setFormData(prev => ({ ...prev, shopName: e.target.value }))}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
-
-                  {/* Logo Upload */}
+                  
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {i18n.language === 'ar' ? 'شعار المتجر' : 'Shop Logo'}
+                      رقم الواتساب *
                     </label>
-                    <div className="flex items-center space-x-4 space-x-reverse">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleImageUpload(file, 'logo');
-                        }}
-                        className="hidden"
-                        id="logo-upload"
-                      />
-                      <label
-                        htmlFor="logo-upload"
-                        className="cursor-pointer bg-gray-100 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
-                      >
-                        <Upload size={16} className="inline mr-2" />
-                        {i18n.language === 'ar' ? 'رفع شعار' : 'Upload Logo'}
-                      </label>
-                      {shopForm.logoUrl && (
-                        <img
-                          src={shopForm.logoUrl}
-                          alt="Logo preview"
-                          className="w-12 h-12 rounded-lg object-cover border"
-                        />
-                      )}
-                    </div>
+                    <input
+                      type="text"
+                      required
+                      value={formData.whatsappNumber}
+                      onChange={(e) => setFormData(prev => ({ ...prev, whatsappNumber: e.target.value }))}
+                      placeholder="218912345678"
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
-
-                  {/* Banner Upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {i18n.language === 'ar' ? 'بانر المتجر' : 'Shop Banner'}
-                    </label>
-                    <div className="flex items-center space-x-4 space-x-reverse">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleImageUpload(file, 'banner');
-                        }}
-                        className="hidden"
-                        id="banner-upload"
-                      />
-                      <label
-                        htmlFor="banner-upload"
-                        className="cursor-pointer bg-gray-100 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
-                      >
-                        <Upload size={16} className="inline mr-2" />
-                        {i18n.language === 'ar' ? 'رفع بانر' : 'Upload Banner'}
-                      </label>
-                      {shopForm.bannerUrl && (
-                        <img
-                          src={shopForm.bannerUrl}
-                          alt="Banner preview"
-                          className="w-24 h-12 rounded-lg object-cover border"
-                        />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Business Info */}
-                  <div className="border-t pt-6">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">
-                      {i18n.language === 'ar' ? 'معلومات العمل (اختياري)' : 'Business Information (Optional)'}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <MapPin size={16} className="inline mr-1" />
-                          {i18n.language === 'ar' ? 'العنوان' : 'Address'}
-                        </label>
-                        <input
-                          type="text"
-                          value={shopForm.businessInfo.address}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            businessInfo: { ...prev.businessInfo, address: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Phone size={16} className="inline mr-1" />
-                          {i18n.language === 'ar' ? 'رقم الهاتف' : 'Phone Number'}
-                        </label>
-                        <input
-                          type="tel"
-                          value={shopForm.businessInfo.phone}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            businessInfo: { ...prev.businessInfo, phone: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Mail size={16} className="inline mr-1" />
-                          {i18n.language === 'ar' ? 'البريد الإلكتروني' : 'Email'}
-                        </label>
-                        <input
-                          type="email"
-                          value={shopForm.businessInfo.email}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            businessInfo: { ...prev.businessInfo, email: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Clock size={16} className="inline mr-1" />
-                          {i18n.language === 'ar' ? 'ساعات العمل' : 'Working Hours'}
-                        </label>
-                        <input
-                          type="text"
-                          value={shopForm.businessInfo.workingHours}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            businessInfo: { ...prev.businessInfo, workingHours: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder={i18n.language === 'ar' ? 'السبت - الخميس: 9 صباحاً - 9 مساءً' : 'Sat - Thu: 9 AM - 9 PM'}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Social Media */}
-                  <div className="border-t pt-6">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">
-                      {i18n.language === 'ar' ? 'وسائل التواصل الاجتماعي (اختياري)' : 'Social Media (Optional)'}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Facebook size={16} className="inline mr-1" />
-                          Facebook
-                        </label>
-                        <input
-                          type="url"
-                          value={shopForm.socialMedia.facebook}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            socialMedia: { ...prev.socialMedia, facebook: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="https://facebook.com/yourpage"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Instagram size={16} className="inline mr-1" />
-                          Instagram
-                        </label>
-                        <input
-                          type="url"
-                          value={shopForm.socialMedia.instagram}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            socialMedia: { ...prev.socialMedia, instagram: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="https://instagram.com/yourpage"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Twitter size={16} className="inline mr-1" />
-                          Twitter
-                        </label>
-                        <input
-                          type="url"
-                          value={shopForm.socialMedia.twitter}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            socialMedia: { ...prev.socialMedia, twitter: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="https://twitter.com/yourpage"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Youtube size={16} className="inline mr-1" />
-                          YouTube
-                        </label>
-                        <input
-                          type="url"
-                          value={shopForm.socialMedia.youtube}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            socialMedia: { ...prev.socialMedia, youtube: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="https://youtube.com/yourchannel"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-4 space-x-reverse pt-6">
-                    <button
-                      type="submit"
-                      disabled={uploading}
-                      className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50"
-                    >
-                      {uploading ? (
-                        <>
-                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white inline mr-2" />
-                          {t('dashboard.saving')}
-                        </>
-                      ) : (
-                        <>
-                          <Save size={20} className="inline mr-2" />
-                          {t('dashboard.shop.create')}
-                        </>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateShop(false)}
-                      className="flex-1 bg-gray-300 text-gray-700 py-3 px-4 rounded-lg hover:bg-gray-400 transition-colors font-semibold"
-                    >
-                      {t('dashboard.cancel')}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Edit Shop Modal */}
-        {showEditShop && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    {t('dashboard.shop.edit')}
-                  </h2>
-                  <button
-                    onClick={() => setShowEditShop(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <X size={24} />
-                  </button>
                 </div>
 
-                <form onSubmit={handleUpdateShop} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    وصف المتجر *
+                  </label>
+                  <textarea
+                    required
+                    rows={3}
+                    value={formData.description}
+                    onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    رابط المتجر
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.shopUrlSlug}
+                    onChange={(e) => setFormData(prev => ({ ...prev, shopUrlSlug: e.target.value }))}
+                    placeholder={generateSlug(formData.shopName)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    سيكون رابط متجرك: /shop/{formData.shopUrlSlug || generateSlug(formData.shopName)}
+                  </p>
+                </div>
+
+                {/* Images */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      شعار المتجر
+                    </label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                      {formData.logoUrl ? (
+                        <div className="relative">
+                          <img
+                            src={formData.logoUrl}
+                            alt="Logo"
+                            className="w-20 h-20 object-cover rounded-full mx-auto mb-2"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, logoUrl: '' }))}
+                            className="text-red-600 text-sm"
+                          >
+                            إزالة
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleImageUpload(file, 'logo');
+                            }}
+                            className="hidden"
+                            id="logo-upload"
+                          />
+                          <label
+                            htmlFor="logo-upload"
+                            className="cursor-pointer text-blue-600 hover:text-blue-800"
+                          >
+                            اختر صورة الشعار
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      بانر المتجر
+                    </label>
+                    <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                      {formData.bannerUrl ? (
+                        <div className="relative">
+                          <img
+                            src={formData.bannerUrl}
+                            alt="Banner"
+                            className="w-full h-20 object-cover rounded-lg mx-auto mb-2"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, bannerUrl: '' }))}
+                            className="text-red-600 text-sm"
+                          >
+                            إزالة
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleImageUpload(file, 'banner');
+                            }}
+                            className="hidden"
+                            id="banner-upload"
+                          />
+                          <label
+                            htmlFor="banner-upload"
+                            className="cursor-pointer text-blue-600 hover:text-blue-800"
+                          >
+                            اختر صورة البانر
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Business Info */}
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4">معلومات العمل</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t('dashboard.shop.name')} *
+                        العنوان
                       </label>
                       <input
                         type="text"
-                        required
-                        value={shopForm.shopName}
-                        onChange={(e) => setShopForm(prev => ({ ...prev, shopName: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={formData.businessInfo.address}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          businessInfo: { ...prev.businessInfo, address: e.target.value }
+                        }))}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
-
+                    
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {t('dashboard.shop.whatsapp')} *
+                        رقم الهاتف
                       </label>
                       <input
-                        type="tel"
-                        required
-                        value={shopForm.whatsappNumber}
-                        onChange={(e) => setShopForm(prev => ({ ...prev, whatsappNumber: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        type="text"
+                        value={formData.businessInfo.phone}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          businessInfo: { ...prev.businessInfo, phone: e.target.value }
+                        }))}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        البريد الإلكتروني
+                      </label>
+                      <input
+                        type="email"
+                        value={formData.businessInfo.email}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          businessInfo: { ...prev.businessInfo, email: e.target.value }
+                        }))}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        ساعات العمل
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.businessInfo.workingHours}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          businessInfo: { ...prev.businessInfo, workingHours: e.target.value }
+                        }))}
+                        placeholder="9:00 ص - 10:00 م"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('dashboard.shop.description')} *
-                    </label>
-                    <textarea
-                      required
-                      rows={3}
-                      value={shopForm.description}
-                      onChange={(e) => setShopForm(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  {/* Logo Upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {i18n.language === 'ar' ? 'شعار المتجر' : 'Shop Logo'}
-                    </label>
-                    <div className="flex items-center space-x-4 space-x-reverse">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleImageUpload(file, 'logo');
-                        }}
-                        className="hidden"
-                        id="edit-logo-upload"
-                      />
-                      <label
-                        htmlFor="edit-logo-upload"
-                        className="cursor-pointer bg-gray-100 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
-                      >
-                        <Upload size={16} className="inline mr-2" />
-                        {i18n.language === 'ar' ? 'تغيير الشعار' : 'Change Logo'}
+                {/* Social Media */}
+                <div>
+                  <h4 className="text-lg font-semibold text-gray-900 mb-4">وسائل التواصل الاجتماعي</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        فيسبوك
                       </label>
-                      {shopForm.logoUrl && (
-                        <img
-                          src={shopForm.logoUrl}
-                          alt="Logo preview"
-                          className="w-12 h-12 rounded-lg object-cover border"
-                        />
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Banner Upload */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {i18n.language === 'ar' ? 'بانر المتجر' : 'Shop Banner'}
-                    </label>
-                    <div className="flex items-center space-x-4 space-x-reverse">
                       <input
-                        type="file"
-                        accept="image/*"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleImageUpload(file, 'banner');
-                        }}
-                        className="hidden"
-                        id="edit-banner-upload"
+                        type="url"
+                        value={formData.socialMedia.facebook}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          socialMedia: { ...prev.socialMedia, facebook: e.target.value }
+                        }))}
+                        placeholder="https://facebook.com/yourpage"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                      <label
-                        htmlFor="edit-banner-upload"
-                        className="cursor-pointer bg-gray-100 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
-                      >
-                        <Upload size={16} className="inline mr-2" />
-                        {i18n.language === 'ar' ? 'تغيير البانر' : 'Change Banner'}
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        إنستغرام
                       </label>
-                      {shopForm.bannerUrl && (
-                        <img
-                          src={shopForm.bannerUrl}
-                          alt="Banner preview"
-                          className="w-24 h-12 rounded-lg object-cover border"
-                        />
-                      )}
+                      <input
+                        type="url"
+                        value={formData.socialMedia.instagram}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          socialMedia: { ...prev.socialMedia, instagram: e.target.value }
+                        }))}
+                        placeholder="https://instagram.com/yourpage"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        تويتر
+                      </label>
+                      <input
+                        type="url"
+                        value={formData.socialMedia.twitter}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          socialMedia: { ...prev.socialMedia, twitter: e.target.value }
+                        }))}
+                        placeholder="https://twitter.com/yourpage"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        يوتيوب
+                      </label>
+                      <input
+                        type="url"
+                        value={formData.socialMedia.youtube}
+                        onChange={(e) => setFormData(prev => ({ 
+                          ...prev, 
+                          socialMedia: { ...prev.socialMedia, youtube: e.target.value }
+                        }))}
+                        placeholder="https://youtube.com/yourchannel"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
                     </div>
                   </div>
+                </div>
 
-                  {/* Business Info */}
-                  <div className="border-t pt-6">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">
-                      {i18n.language === 'ar' ? 'معلومات العمل' : 'Business Information'}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <MapPin size={16} className="inline mr-1" />
-                          {i18n.language === 'ar' ? 'العنوان' : 'Address'}
-                        </label>
-                        <input
-                          type="text"
-                          value={shopForm.businessInfo.address}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            businessInfo: { ...prev.businessInfo, address: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Phone size={16} className="inline mr-1" />
-                          {i18n.language === 'ar' ? 'رقم الهاتف' : 'Phone Number'}
-                        </label>
-                        <input
-                          type="tel"
-                          value={shopForm.businessInfo.phone}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            businessInfo: { ...prev.businessInfo, phone: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Mail size={16} className="inline mr-1" />
-                          {i18n.language === 'ar' ? 'البريد الإلكتروني' : 'Email'}
-                        </label>
-                        <input
-                          type="email"
-                          value={shopForm.businessInfo.email}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            businessInfo: { ...prev.businessInfo, email: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Clock size={16} className="inline mr-1" />
-                          {i18n.language === 'ar' ? 'ساعات العمل' : 'Working Hours'}
-                        </label>
-                        <input
-                          type="text"
-                          value={shopForm.businessInfo.workingHours}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            businessInfo: { ...prev.businessInfo, workingHours: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Social Media */}
-                  <div className="border-t pt-6">
-                    <h3 className="text-lg font-medium text-gray-900 mb-4">
-                      {i18n.language === 'ar' ? 'وسائل التواصل الاجتماعي' : 'Social Media'}
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Facebook size={16} className="inline mr-1" />
-                          Facebook
-                        </label>
-                        <input
-                          type="url"
-                          value={shopForm.socialMedia.facebook}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            socialMedia: { ...prev.socialMedia, facebook: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Instagram size={16} className="inline mr-1" />
-                          Instagram
-                        </label>
-                        <input
-                          type="url"
-                          value={shopForm.socialMedia.instagram}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            socialMedia: { ...prev.socialMedia, instagram: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Twitter size={16} className="inline mr-1" />
-                          Twitter
-                        </label>
-                        <input
-                          type="url"
-                          value={shopForm.socialMedia.twitter}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            socialMedia: { ...prev.socialMedia, twitter: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          <Youtube size={16} className="inline mr-1" />
-                          YouTube
-                        </label>
-                        <input
-                          type="url"
-                          value={shopForm.socialMedia.youtube}
-                          onChange={(e) => setShopForm(prev => ({
-                            ...prev,
-                            socialMedia: { ...prev.socialMedia, youtube: e.target.value }
-                          }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-4 space-x-reverse pt-6">
-                    <button
-                      type="submit"
-                      disabled={uploading}
-                      className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50"
-                    >
-                      {uploading ? (
-                        <>
-                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white inline mr-2" />
-                          {t('dashboard.saving')}
-                        </>
-                      ) : (
-                        <>
-                          <Save size={20} className="inline mr-2" />
-                          {t('dashboard.shop.update')}
-                        </>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowEditShop(false)}
-                      className="flex-1 bg-gray-300 text-gray-700 py-3 px-4 rounded-lg hover:bg-gray-400 transition-colors font-semibold"
-                    >
-                      {t('dashboard.cancel')}
-                    </button>
-                  </div>
-                </form>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Add/Edit Product Modal */}
-        {(showAddProduct || editingProduct) && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg max-w-lg w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-semibold text-gray-900">
-                    {editingProduct ? t('dashboard.edit') + ' ' + t('dashboard.products') : t('dashboard.add.product')}
-                  </h2>
+                <div className="flex space-x-3 space-x-reverse pt-6 border-t">
                   <button
+                    type="button"
                     onClick={() => {
-                      setShowAddProduct(false);
-                      setEditingProduct(null);
-                      setProductForm({
-                        productName: '',
-                        description: '',
-                        price: '',
-                        imageUrl: '',
-                        category: 'clothing'
-                      });
+                      setShowShopForm(false);
+                      setEditingShop(false);
                     }}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
                   >
-                    <X size={24} />
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading || uploading}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {loading ? 'جاري الحفظ...' : (shop ? 'تحديث المتجر' : 'إنشاء المتجر')}
                   </button>
                 </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
-                <form onSubmit={editingProduct ? handleUpdateProduct : handleAddProduct} className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('dashboard.product.name')} *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={productForm.productName}
-                      onChange={(e) => setProductForm(prev => ({ ...prev, productName: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder={t('dashboard.product.name.placeholder')}
-                    />
-                  </div>
+      {/* Product Form Modal */}
+      {showProductForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <h3 className="text-xl font-bold text-gray-900 mb-6">
+                {editingProduct ? 'تعديل المنتج' : 'إضافة منتج جديد'}
+              </h3>
+              
+              <form onSubmit={handleProductSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    اسم المنتج *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={productFormData.productName}
+                    onChange={(e) => setProductFormData(prev => ({ ...prev, productName: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('dashboard.product.category')} *
-                    </label>
-                    <select
-                      required
-                      value={productForm.category}
-                      onChange={(e) => setProductForm(prev => ({ ...prev, category: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      {PRODUCT_CATEGORIES.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {i18n.language === 'ar' ? category.nameAr : category.nameEn}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    السعر (د.ل) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    step="0.01"
+                    value={productFormData.price}
+                    onChange={(e) => setProductFormData(prev => ({ ...prev, price: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('dashboard.product.price')} *
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      step="0.01"
-                      value={productForm.price}
-                      onChange={(e) => setProductForm(prev => ({ ...prev, price: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder={t('dashboard.product.price.placeholder')}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    الفئة *
+                  </label>
+                  <select
+                    required
+                    value={productFormData.category}
+                    onChange={(e) => setProductFormData(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">اختر الفئة</option>
+                    {categories.map(category => (
+                      <option key={category.id} value={category.id}>
+                        {i18n.language === 'ar' ? category.nameAr : category.nameEn}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('dashboard.product.description')}
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={productForm.description}
-                      onChange={(e) => setProductForm(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder={t('dashboard.product.description.placeholder')}
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    وصف المنتج
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={productFormData.description}
+                    onChange={(e) => setProductFormData(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      {t('dashboard.product.image')} *
-                    </label>
-                    <div className="space-y-4">
-                      <div className="flex items-center space-x-4 space-x-reverse">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    صورة المنتج *
+                  </label>
+                  <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
+                    {productFormData.imageUrl ? (
+                      <div className="relative">
+                        <img
+                          src={productFormData.imageUrl}
+                          alt="Product"
+                          className="w-full h-32 object-cover rounded-lg mx-auto mb-2"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setProductFormData(prev => ({ ...prev, imageUrl: '' }))}
+                          className="text-red-600 text-sm"
+                        >
+                          إزالة الصورة
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <Upload className="mx-auto h-8 w-8 text-gray-400 mb-2" />
                         <input
                           type="file"
                           accept="image/*"
@@ -1861,69 +1563,46 @@ const DashboardPage: React.FC = () => {
                         />
                         <label
                           htmlFor="product-image-upload"
-                          className="cursor-pointer bg-gray-100 border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+                          className="cursor-pointer text-blue-600 hover:text-blue-800"
                         >
-                          <Upload size={16} className="inline mr-2" />
-                          {i18n.language === 'ar' ? 'رفع صورة' : 'Upload Image'}
+                          اختر صورة المنتج
                         </label>
-                        {productForm.imageUrl && (
-                          <img
-                            src={productForm.imageUrl}
-                            alt="Product preview"
-                            className="w-16 h-16 rounded-lg object-cover border"
-                          />
-                        )}
                       </div>
-                      {!productForm.imageUrl && (
-                        <p className="text-sm text-red-600">
-                          {i18n.language === 'ar' ? 'صورة المنتج مطلوبة' : 'Product image is required'}
-                        </p>
-                      )}
-                    </div>
+                    )}
                   </div>
+                </div>
 
-                  <div className="flex space-x-4 space-x-reverse pt-6">
-                    <button
-                      type="submit"
-                      disabled={uploading || !productForm.imageUrl}
-                      className="flex-1 bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors font-semibold disabled:opacity-50"
-                    >
-                      {uploading ? (
-                        <>
-                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white inline mr-2" />
-                          {t('dashboard.saving')}
-                        </>
-                      ) : (
-                        <>
-                          <Save size={20} className="inline mr-2" />
-                          {editingProduct ? t('dashboard.update') : t('dashboard.save')}
-                        </>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAddProduct(false);
-                        setEditingProduct(null);
-                        setProductForm({
-                          productName: '',
-                          description: '',
-                          price: '',
-                          imageUrl: '',
-                          category: 'clothing'
-                        });
-                      }}
-                      className="flex-1 bg-gray-300 text-gray-700 py-3 px-4 rounded-lg hover:bg-gray-400 transition-colors font-semibold"
-                    >
-                      {t('dashboard.cancel')}
-                    </button>
-                  </div>
-                </form>
-              </div>
+                <div className="flex space-x-3 space-x-reverse pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowProductForm(false);
+                      setEditingProduct(null);
+                      setProductFormData({
+                        productName: '',
+                        description: '',
+                        price: '',
+                        imageUrl: '',
+                        category: ''
+                      });
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading || uploading || !productFormData.imageUrl}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {loading ? 'جاري الحفظ...' : (editingProduct ? 'تحديث المنتج' : 'إضافة المنتج')}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -19,6 +19,8 @@ import {
   Star,
   StarOff
 } from 'lucide-react';
+import ProductModal from '../components/ProductModal';
+import RatingSystem from '../components/RatingSystem';
 
 interface Product {
   id: string;
@@ -183,6 +185,11 @@ const MarketplacePage: React.FC = () => {
     const message = `مرحباً ${product.shop.shopName}، أود طلب المنتج التالي: ${product.productName}`;
     const whatsappUrl = `https://wa.me/${product.shop.whatsappNumber}?text=${encodeURIComponent(message)}`;
     window.open(whatsappUrl, '_blank');
+  };
+
+  const handleRatingUpdate = (productId: string, newRating: number) => {
+    // Refresh the ratings data
+    fetchData();
   };
 
   const renderStars = (rating: number, reviewCount: number) => {
@@ -361,6 +368,15 @@ const MarketplacePage: React.FC = () => {
                       <div className="mb-2">
                         {renderStars(product.averageRating || 0, product.reviewCount || 0)}
                       </div>
+                      
+                      {/* User Rating Component */}
+                      <div className="mb-3">
+                        <RatingSystem
+                          productId={product.id}
+                          onRatingUpdate={(rating) => handleRatingUpdate(product.id, rating)}
+                        />
+                      </div>
+                      
                       <Link 
                         to={`/shop/${product.shop.shopUrlSlug}`}
                         onClick={(e) => e.stopPropagation()}
@@ -437,76 +453,16 @@ const MarketplacePage: React.FC = () => {
 
         {/* Product Detail Modal */}
         {showProductModal && selectedProduct && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="relative">
-                <button
-                  onClick={closeProductModal}
-                  className="absolute top-4 right-4 z-10 bg-white rounded-full p-2 shadow-lg hover:bg-gray-100"
-                >
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-                <img
-                  src={selectedProduct.imageUrl}
-                  alt={selectedProduct.productName}
-                  className="w-full h-64 object-cover"
-                />
-              </div>
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-full">
-                    {getCategoryName(selectedProduct.category)}
-                  </span>
-                  <div className="text-right">
-                    <p className="text-3xl font-bold text-blue-600">
-                      {selectedProduct.price} {t('currency')}
-                    </p>
-                  </div>
-                </div>
-                
-                <h2 className="text-2xl font-bold text-gray-900 mb-3">
-                  {selectedProduct.productName}
-                </h2>
-                
-                {selectedProduct.description && (
-                  <p className="text-gray-600 mb-4 leading-relaxed">
-                    {selectedProduct.description}
-                  </p>
-                )}
-                
-                <div className="mb-4">
-                  {renderStars(selectedProduct.averageRating || 0, selectedProduct.reviewCount || 0)}
-                </div>
-                
-                <Link 
-                  to={`/shop/${selectedProduct.shop.shopUrlSlug}`}
-                  className="inline-flex items-center space-x-2 space-x-reverse text-blue-600 hover:text-blue-800 mb-6"
-                >
-                  <Store size={18} />
-                  <span className="font-medium">{selectedProduct.shop.shopName}</span>
-                </Link>
-                
-                <div className="flex space-x-4 space-x-reverse">
-                  <button
-                    onClick={() => handleWhatsAppOrder(selectedProduct)}
-                    className="flex-1 bg-green-600 text-white py-3 px-6 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center space-x-2 space-x-reverse font-semibold"
-                  >
-                    <MessageCircle size={20} />
-                    <span>{t('shop.order.whatsapp')}</span>
-                  </button>
-                  <Link
-                    to={`/shop/${selectedProduct.shop.shopUrlSlug}`}
-                    className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 space-x-reverse font-semibold"
-                  >
-                    <Store size={20} />
-                    <span>{i18n.language === 'ar' ? 'زيارة المتجر' : 'Visit Shop'}</span>
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ProductModal
+            product={selectedProduct}
+            shop={selectedProduct.shop}
+            averageRating={selectedProduct.averageRating || 0}
+            reviewCount={selectedProduct.reviewCount || 0}
+            isOpen={showProductModal}
+            onClose={closeProductModal}
+            onWhatsAppOrder={handleWhatsAppOrder}
+            onRatingUpdate={handleRatingUpdate}
+          />
         )}
       </div>
     </div>
