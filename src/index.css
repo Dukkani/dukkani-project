@@ -254,10 +254,6 @@ textarea:focus {
   aspect-ratio: 16 / 9;
 }
 
-.aspect-[3/4] {
-  aspect-ratio: 3 / 4;
-}
-
 /* Glass morphism effect */
 .glass {
   background: rgba(255, 255, 255, 0.25);
