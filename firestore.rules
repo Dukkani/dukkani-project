@@ -8,6 +8,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.email == 'dukkani2026@gmail.com';
+    }
+
     // === USERS Collection Rules (Unchanged) ===
     match /users/{userId} {
       allow read, update: if isSignedIn() && request.auth.uid == userId;
@@ -24,8 +29,13 @@ service cloud.firestore {
     match /products/{productId} {
       // ANYONE can read product data.
       allow read: if true;
-      // ONLY the shop owner can create, update, or delete products for their shop.
-      allow create, update, delete: if isSignedIn() && get(/databases/$(database)/documents/shops/$(request.resource.data.shopId)).data.ownerId == request.auth.uid;
+      // ONLY the shop owner can create and update products for their shop.
+      allow create, update: if isSignedIn() && get(/databases/$(database)/documents/shops/$(request.resource.data.shopId)).data.ownerId == request.auth.uid;
+      // ONLY the shop owner can delete products from their shop.
+      allow delete: if isSignedIn() && (
+        isAdmin() || 
+        (resource.data.shopId is string && exists(/databases/$(database)/documents/shops/$(resource.data.shopId)) && get(/databases/$(database)/documents/shops/$(resource.data.shopId)).data.ownerId == request.auth.uid)
+      );
     }
 
     // === NEW: RATINGS Collection Rules ===
@@ -41,7 +51,10 @@ service cloud.firestore {
 
       // A user can UPDATE or DELETE a rating only if they are the original
       // user who created it.
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        get(/databases/$(database)/documents/shops/$(get(/databases/$(database)/documents/products/$(resource.data.productId)).data.shopId)).data.ownerId == request.auth.uid
+      );
     }
   }
 }

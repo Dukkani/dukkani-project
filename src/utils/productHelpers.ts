@@ -1,4 +1,5 @@
 import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { getDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
 export interface Product {
@@ -29,37 +30,10 @@ export interface Shop {
  */
 export const deleteProduct = async (
   productId: string, 
-  userId: string, 
+  userId: string,
   isAdmin: boolean = false
 ): Promise<void> => {
   try {
-    if (!isAdmin) {
-      // For regular users, verify they own the shop that contains this product
-      const productQuery = query(
-        collection(db, 'products'),
-        where('__name__', '==', productId)
-      );
-      const productSnapshot = await getDocs(productQuery);
-      
-      if (productSnapshot.empty) {
-        throw new Error('Product not found');
-      }
-      
-      const productData = productSnapshot.docs[0].data() as Product;
-      
-      // Check if user owns the shop
-      const shopQuery = query(
-        collection(db, 'shops'),
-        where('__name__', '==', productData.shopId),
-        where('ownerId', '==', userId)
-      );
-      const shopSnapshot = await getDocs(shopQuery);
-      
-      if (shopSnapshot.empty) {
-        throw new Error('Unauthorized: You can only delete products from your own shop');
-      }
-    }
-    
     // Delete the product
     await deleteDoc(doc(db, 'products', productId));
     

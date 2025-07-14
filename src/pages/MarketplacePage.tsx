@@ -369,14 +369,6 @@ const MarketplacePage: React.FC = () => {
                         {renderStars(product.averageRating || 0, product.reviewCount || 0)}
                       </div>
                       
-                      {/* User Rating Component */}
-                      <div className="mb-3">
-                        <RatingSystem
-                          productId={product.id}
-                          onRatingUpdate={(rating) => handleRatingUpdate(product.id, rating)}
-                        />
-                      </div>
-                      
                       <Link 
                         to={`/shop/${product.shop.shopUrlSlug}`}
                         onClick={(e) => e.stopPropagation()}
@@ -390,17 +382,26 @@ const MarketplacePage: React.FC = () => {
                       </p>
                     </div>
                     <div className={viewMode === 'list' ? 'ml-4' : ''}>
-                      <button
-                        onClick={() => handleWhatsAppOrder(product)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleWhatsAppOrder(product);
-                        }}
-                        className="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center space-x-2 space-x-reverse text-sm"
-                      >
-                        <MessageCircle size={16} />
-                        <span>{t('shop.order.whatsapp')}</span>
-                      </button>
+                      <div className="space-y-2">
+                        <Link
+                          to={`/shop/${product.shop.shopUrlSlug}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 space-x-reverse text-sm font-medium"
+                        >
+                          <Store size={16} />
+                          <span>{i18n.language === 'ar' ? 'زيارة المتجر' : 'Go to Shop'}</span>
+                        </Link>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleWhatsAppOrder(product);
+                          }}
+                          className="w-full bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center space-x-2 space-x-reverse text-sm"
+                        >
+                          <MessageCircle size={16} />
+                          <span>{t('shop.order.whatsapp')}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>

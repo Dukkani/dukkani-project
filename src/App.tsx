@@ -10,7 +10,6 @@ import LandingPage from './pages/LandingPage';
 import MarketplacePage from './pages/MarketplacePage';
 import SignupPage from './pages/SignupPage';
 import LoginPage from './pages/LoginPage';
-import SubscriptionPage from './pages/SubscriptionPage';
 import DashboardPage from './pages/DashboardPage';
 import ShopPage from './pages/ShopPage';
 import SupportPage from './pages/SupportPage';
@@ -39,14 +38,7 @@ function App() {
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-            <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <DashboardPage />
-                </ProtectedRoute>
-              } 
-            />
+            <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/shop/:shopUrlSlug" element={<ShopPage />} />
           </Routes>
           <ToastContainer />

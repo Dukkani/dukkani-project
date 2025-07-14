@@ -50,7 +50,7 @@ const SignupPage: React.FC = () => {
     try {
       await signup(formData.email, formData.password);
       setSuccess(t('auth.signup.success', 'Account created successfully! Redirecting...'));
-      navigate('/subscribe');
+      navigate('/dashboard');
     } catch (err: any) {
       console.error('Signup error:', err);
       
@@ -84,7 +84,7 @@ const SignupPage: React.FC = () => {
     try {
       await signupWithGoogle();
       setSuccess(t('auth.signup.success', 'Account created successfully! Redirecting...'));
-      navigate('/subscribe');
+      navigate('/dashboard');
     } catch (err: any) {
       console.error('Google signup error:', err);
       

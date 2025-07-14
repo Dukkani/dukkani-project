@@ -1,9 +1,10 @@
 // Upload.io configuration and utilities
 export const UPLOADIO_CONFIG = {
-  // Replace with your actual Upload.io account ID and public API key
-  accountId: '223k2Hq', // Replace with your actual account ID
-  publicApiKey: 'public_223k2HqApvVZh5j1AZYw9p9GaDzy', // Replace with your actual public API key
-  uploadUrl: 'https://api.upload.io/v2/accounts/223k2Hq/uploads/binary' // Replace account ID
+  accountId: '223k2Hq',
+  publicApiKey: 'public_223k2HqApvVZh5j1AZYw9p9GaDzy',
+  get uploadUrl() {
+    return `https://api.upload.io/v2/accounts/${this.accountId}/uploads/binary`;
+  }
 };
 
 export interface UploadioResponse {
@@ -29,7 +30,9 @@ export const uploadImageToUploadio = async (file: File): Promise<string> => {
     });
 
     if (!response.ok) {
-      throw new Error(`Upload failed: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error('Upload.io error response:', errorText);
+      throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
     }
 
     const result: UploadioResponse = await response.json();

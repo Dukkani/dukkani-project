@@ -16,6 +16,7 @@ import {
 import { db } from '../config/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { MessageCircle, Store, Star, StarOff, Shield, Clock, MapPin, Phone, Mail, Globe, Heart, Share2 } from 'lucide-react';
+import RatingSystem from '../components/RatingSystem';
 
 const categories = [
   { id: 'clothing', nameAr: 'ملابس', nameEn: 'Clothing' },
@@ -88,10 +89,6 @@ const ShopPage: React.FC = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'price_low' | 'price_high' | 'rating'>('newest');
-  const [showRatingModal, setShowRatingModal] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [tempRating, setTempRating] = useState(0);
-  const [ratingCooldown, setRatingCooldown] = useState<{ [key: string]: number }>({});
 
   useEffect(() => {
     if (shopUrlSlug) {
@@ -157,7 +154,6 @@ const ShopPage: React.FC = () => {
       // Calculate average ratings and user ratings
       const avgRatings: { [key: string]: { average: number; count: number } } = {};
       const userRatingsMap: { [key: string]: number } = {};
-      const cooldownMap: { [key: string]: number } = {};
       
       productIds.forEach(productId => {
         const productRatings = ratingsData.filter(r => r.productId === productId);
@@ -173,12 +169,6 @@ const ShopPage: React.FC = () => {
             const userRating = productRatings.find(r => r.userId === user.uid);
             if (userRating) {
               userRatingsMap[productId] = userRating.rating;
-              // Set cooldown (24 hours from last rating)
-              const lastRatingTime = userRating.createdAt?.seconds * 1000 || 0;
-              const cooldownEnd = lastRatingTime + (24 * 60 * 60 * 1000); // 24 hours
-              if (Date.now() < cooldownEnd) {
-                cooldownMap[productId] = cooldownEnd;
-              }
             }
           }
         } else {
@@ -188,82 +178,14 @@ const ShopPage: React.FC = () => {
       
       setProductRatings(avgRatings);
       setUserRatings(userRatingsMap);
-      setRatingCooldown(cooldownMap);
     } catch (error) {
       console.error('Error fetching ratings:', error);
     }
   };
 
-  const canUserRate = (productId: string): { canRate: boolean; reason?: string } => {
-    if (!user) {
-      return { canRate: false, reason: i18n.language === 'ar' ? 'يجب تسجيل الدخول لتقييم المنتجات' : 'Please login to rate products' };
-    }
-
-    // Check if user is on cooldown
-    const cooldownEnd = ratingCooldown[productId];
-    if (cooldownEnd && Date.now() < cooldownEnd) {
-      const hoursLeft = Math.ceil((cooldownEnd - Date.now()) / (1000 * 60 * 60));
-      return { 
-        canRate: false, 
-        reason: i18n.language === 'ar' 
-          ? `يمكنك تقييم هذا المنتج مرة أخرى بعد ${hoursLeft} ساعة`
-          : `You can rate this product again in ${hoursLeft} hours`
-      };
-    }
-
-    return { canRate: true };
-  };
-
-  const handleRatingClick = (product: Product) => {
-    const { canRate, reason } = canUserRate(product.id);
-    
-    if (!canRate) {
-      alert(reason);
-      return;
-    }
-
-    setSelectedProduct(product);
-    setTempRating(userRatings[product.id] || 0);
-    setShowRatingModal(true);
-  };
-
-  const handleRatingSubmit = async () => {
-    if (!selectedProduct || !user || tempRating === 0) return;
-
-    setRatingLoading(selectedProduct.id);
-    
-    try {
-      // Check if user already rated this product
-      const existingRating = ratings.find(r => r.productId === selectedProduct.id && r.userId === user.uid);
-      
-      if (existingRating) {
-        // Update existing rating
-        await updateDoc(doc(db, 'ratings', existingRating.id), {
-          rating: tempRating,
-          createdAt: serverTimestamp()
-        });
-      } else {
-        // Create new rating
-        await addDoc(collection(db, 'ratings'), {
-          productId: selectedProduct.id,
-          userId: user.uid,
-          rating: tempRating,
-          createdAt: serverTimestamp()
-        });
-      }
-      
-      // Refresh ratings
-      await fetchRatings([selectedProduct.id]);
-      setShowRatingModal(false);
-      setSelectedProduct(null);
-      setTempRating(0);
-      
-    } catch (error) {
-      console.error('Error saving rating:', error);
-      alert(i18n.language === 'ar' ? 'فشل في حفظ التقييم' : 'Failed to save rating');
-    } finally {
-      setRatingLoading(null);
-    }
+  const handleRatingUpdate = (productId: string, newRating: number) => {
+    // Refresh ratings data
+    fetchRatings([productId]);
   };
 
   const handleWhatsAppOrder = (product: Product) => {
@@ -536,12 +458,6 @@ const ShopPage: React.FC = () => {
                     >
                       <Share2 size={16} />
                     </button>
-                    <button
-                      onClick={() => handleRatingClick(product)}
-                      className="bg-white text-gray-900 p-2 rounded-full hover:bg-gray-100 transition-colors"
-                    >
-                      <Star size={16} />
-                    </button>
                   </div>
                 </div>
                 
@@ -583,6 +499,14 @@ const ShopPage: React.FC = () => {
                       {i18n.language === 'ar' ? 'تقييمك:' : 'Your rating:'} {userRatings[product.id]} ⭐
                     </div>
                   )}
+                  
+                  {/* Rating System */}
+                  <div className="mb-4">
+                    <RatingSystem
+                      productId={product.id}
+                      onRatingUpdate={(rating) => handleRatingUpdate(product.id, rating)}
+                    />
+                  </div>
                   
                   <button
                     onClick={() => handleWhatsAppOrder(product)}
@@ -660,61 +584,6 @@ const ShopPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Rating Modal */}
-      {showRatingModal && selectedProduct && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="text-center mb-6">
-              <h3 className="text-xl font-bold text-gray-900 mb-2">
-                {i18n.language === 'ar' ? 'قيم هذا المنتج' : 'Rate This Product'}
-              </h3>
-              <p className="text-gray-600">{selectedProduct.productName}</p>
-            </div>
-            
-            <div className="flex justify-center space-x-2 space-x-reverse mb-6">
-              {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  onClick={() => setTempRating(star)}
-                  className="focus:outline-none hover:scale-110 transition-transform"
-                >
-                  <Star
-                    size={32}
-                    className={`${
-                      star <= tempRating
-                        ? 'text-yellow-400 fill-current'
-                        : 'text-gray-300'
-                    }`}
-                  />
-                </button>
-              ))}
-            </div>
-            
-            <div className="flex space-x-3 space-x-reverse">
-              <button
-                onClick={() => setShowRatingModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
-              >
-                {i18n.language === 'ar' ? 'إلغاء' : 'Cancel'}
-              </button>
-              <button
-                onClick={handleRatingSubmit}
-                disabled={tempRating === 0 || ratingLoading === selectedProduct.id}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {ratingLoading === selectedProduct.id ? (
-                  <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                    {i18n.language === 'ar' ? 'جاري الحفظ...' : 'Saving...'}
-                  </div>
-                ) : (
-                  i18n.language === 'ar' ? 'حفظ التقييم' : 'Save Rating'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

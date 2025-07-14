@@ -162,13 +162,23 @@ const ProductCard: React.FC<ProductCardProps> = ({
           </div>
           
           <div className={viewMode === 'list' ? 'ml-4 flex-shrink-0' : ''}>
-            <button
-              onClick={handleWhatsAppClick}
-              className="w-full bg-gradient-to-r from-green-600 to-green-700 text-white py-3 px-4 rounded-lg hover:from-green-700 hover:to-green-800 transition-all duration-200 flex items-center justify-center space-x-2 space-x-reverse font-semibold shadow-sm hover:shadow-md"
-            >
-              <MessageCircle size={18} />
-              <span>{t('shop.order.whatsapp')}</span>
-            </button>
+            <div className="space-y-2">
+              <Link
+                to={`/shop/${shop.shopUrlSlug}`}
+                onClick={handleShopClick}
+                className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2 space-x-reverse font-medium text-sm"
+              >
+                <Store size={16} />
+                <span>{i18n.language === 'ar' ? 'زيارة المتجر' : 'Go to Shop'}</span>
+              </Link>
+              <button
+                onClick={handleWhatsAppClick}
+                className="w-full bg-gradient-to-r from-green-600 to-green-700 text-white py-2 px-4 rounded-lg hover:from-green-700 hover:to-green-800 transition-all duration-200 flex items-center justify-center space-x-2 space-x-reverse font-medium text-sm"
+              >
+                <MessageCircle size={16} />
+                <span>{t('shop.order.whatsapp')}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -26,7 +26,6 @@ interface AuthContextType {
   loginWithGoogle: () => Promise<void>;
   signupWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
-  refreshUserData: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -69,20 +68,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fetchUserData(user.uid);
   };
 
-  const refreshUserData = async () => {
-    if (user) {
-      await fetchUserData(user.uid);
-    }
-  };
-
   const signup = async (email: string, password: string) => {
-    const result = await createUserWithEmailAndPassword(auth, email, password);
-    await createUserDocument(result.user);
+    await createUserWithEmailAndPassword(auth, email, password);
   };
 
   const signupWithGoogle = async () => {
-    const result = await signInWithPopup(auth, googleProvider);
-    await createUserDocument(result.user);
+    await signInWithPopup(auth, googleProvider);
   };
 
   const login = async (email: string, password: string) => {
@@ -122,7 +113,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loginWithGoogle,
     signupWithGoogle,
     logout,
-    refreshUserData
   };
 
   return (

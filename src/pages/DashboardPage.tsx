@@ -369,15 +369,20 @@ const DashboardPage: React.FC = () => {
     try {
       setLoading(true);
       
-      // Delete the product
-      await deleteDoc(doc(db, 'products', productId));
+      // Delete associated ratings FIRST (before product deletion)
+      const ratingsQuery = query(
+        collection(db, 'ratings'),
+        where('productId', '==', productId)
+      );
+      const ratingsSnapshot = await getDocs(ratingsQuery);
       
-      // Delete associated ratings
-      const productRatings = ratings.filter(r => r.productId === productId);
-      const deletePromises = productRatings.map(rating => 
-        deleteDoc(doc(db, 'ratings', rating.id))
+      const deletePromises = ratingsSnapshot.docs.map(ratingDoc => 
+        deleteDoc(doc(db, 'ratings', ratingDoc.id))
       );
       await Promise.all(deletePromises);
+      
+      // Then delete the product
+      await deleteDoc(doc(db, 'products', productId));
       
       alert(t('dashboard.product.deleted'));
       await fetchData();
